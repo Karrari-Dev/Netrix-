@@ -1,307 +1,279 @@
-
-# Netrix - Advanced Reverse Tunneling Solution
-
-<div dir="rtl">
-
 # Netrix - راه‌حل پیشرفته تونل معکوس
 
-</div>
-
-[![Go Version](https://img.shields.io/badge/Go-1.20+-00ADD8?style=flat&logo=go)](https://golang.org/)
-[![License](https://img.shields.io/badge/License-Commercial-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-Stable-green.svg)](https://github.com/yourusername/netrix/releases)
-
----
-
 <div dir="rtl">
 
-## 🔍 درباره تونل معکوس Netrix
+## درباره تونل معکوس Netrix
 
 **Netrix** یک راه‌حل پیشرفته و حرفه‌ای برای تونل‌سازی معکوس (Reverse Tunneling) است که برای عبور از NAT، فایروال‌ها و محدودیت‌های شبکه طراحی شده است.
 
 ### تونل معکوس چیست؟
 
-تونل معکوس (Reverse Tunneling) یک تکنیک شبکه است که به شما اجازه می‌دهد تا از یک شبکه محدود (مثل شبکه خانگی یا شرکتی با NAT و فایروال) به یک سرور خارجی متصل شوید و سپس از آن سرور برای اتصال به خدمات محلی استفاده کنید.
+تونل معکوس یک تکنیک شبکه است که به شما اجازه می‌دهد از یک شبکه محدود (مثل شبکه خانگی یا شرکتی با NAT و فایروال) به یک سرور خارجی متصل شوید و سپس از آن سرور برای اتصال به خدمات محلی استفاده کنید.
+
+**نحوه کار:**
+1. کلاینت (داخل شبکه محدود) به سرور خارجی متصل می‌شود
+2. سرور از طریق این اتصال به خدمات محلی کلاینت دسترسی پیدا می‌کند
+3. کاربران از طریق سرور به خدمات محلی کلاینت متصل می‌شوند
+
+**مزایا:**
+- ✅ عبور از NAT بدون نیاز به port forwarding
+- ✅ عبور از فایروال‌ها از طریق TCP/WebSocket
+- ✅ امنیت با PSK authentication و TLS encryption
+- ✅ Performance بالا برای اتصالات زیاد
+- ✅ Multiplexing: چندین connection روی یک tunnel
+- ✅ پشتیبانی کامل UDP با frame protocol
+
+**کاربردها:**
+- 🎮 Gaming: اتصال به game servers از پشت NAT
+- 🖥️ Remote Access: دسترسی از راه دور به services محلی
+- 📡 Service Exposure: در دسترس قرار دادن services محلی در اینترنت
+- 🔒 Bypass Restrictions: عبور از محدودیت‌های شبکه
+- 🌐 VPN Alternative: جایگزین برای VPN سنتی
 
 ### معماری Netrix
 
 Netrix از معماری چند لایه استفاده می‌کند:
 
-1. **لایه Transport**: TCP، KCP، WebSocket، Secure WebSocket
-   - این لایه اتصال پایه بین کلاینت و سرور را برقرار می‌کند
-   - هر پروتکل مزایای خاص خودش را دارد:
-     - **TCP**: قابل اعتماد و پایدار، مناسب برای اکثر کاربردها
-     - **KCP**: سریع و کم latency، مناسب برای gaming و live streaming
-     - **WebSocket**: عبور از فایروال‌های HTTP-aware
-     - **WSS**: امن با TLS/SSL
+**1. لایه Transport (TCP, KCP, WebSocket, WSS)**
+- اتصال پایه بین کلاینت و سرور
+- TCP: قابل اعتماد و پایدار
+- KCP: سریع و کم latency برای gaming
+- WebSocket: عبور از فایروال‌های HTTP-aware
+- WSS: امن با TLS/SSL
 
-2. **لایه SMUX (Stream Multiplexing)**:
-   - چندین stream روی یک transport connection
-   - کاهش overhead و استفاده بهینه از connection
-   - امکان اجرای همزمان چندین اتصال روی یک tunnel
+**2. لایه SMUX (Stream Multiplexing)**
+- چندین stream روی یک transport connection
+- کاهش overhead و استفاده بهینه
+- امکان اجرای همزمان چندین اتصال
 
-3. **لایه Session Manager**:
-   - مدیریت pool از sessions
-   - Load balancing هوشمند (least-loaded selection)
-   - Tracking دقیق streams
+**3. لایه Session Manager**
+- مدیریت pool از sessions
+- Load balancing هوشمند (least-loaded)
+- Tracking دقیق streams
 
-4. **Frame Protocol برای UDP**:
-   - Encapsulation UDP packets داخل frames
-   - امکان عبور UDP از طریق tunnel
-   - مدیریت چندین UDP flow
-
-### مزایای Netrix
-
-- ✅ **عبور از NAT**: بدون نیاز به تنظیمات router یا port forwarding
-- ✅ **عبور از فایروال**: از طریق TCP/WebSocket که معمولاً باز هستند
-- ✅ **امنیت**: PSK authentication و TLS encryption
-- ✅ **Performance**: بهینه‌سازی شده برای اتصالات زیاد
-- ✅ **Multiplexing**: چندین connection روی یک tunnel
-- ✅ **UDP Support**: پشتیبانی کامل UDP با frame protocol
-- ✅ **Monitoring**: آمار لحظه‌ای و heartbeat monitoring
-
-### کاربردها
-
-- 🎮 **Gaming**: اتصال به game servers از پشت NAT
-- 🖥️ **Remote Access**: دسترسی از راه دور به services محلی
-- 📡 **Service Exposure**: در دسترس قرار دادن services محلی در اینترنت
-- 🔒 **Bypass Restrictions**: عبور از محدودیت‌های شبکه
-- 🌐 **VPN Alternative**: جایگزین برای VPN سنتی
+**4. Frame Protocol برای UDP**
+- Encapsulation UDP packets داخل frames
+- امکان عبور UDP از طریق tunnel
+- مدیریت چندین UDP flow
 
 </div>
-
-## 🔍 About Netrix Reverse Tunneling
-
-**Netrix** is an advanced and professional reverse tunneling solution designed for NAT traversal, firewall bypass, and network restrictions.
-
-### What is Reverse Tunneling?
-
-Reverse tunneling is a network technique that allows you to connect from a restricted network (like home or corporate network with NAT and firewall) to an external server, then use that server to access local services.
-
-### Netrix Architecture
-
-Netrix uses a multi-layer architecture:
-
-1. **Transport Layer**: TCP, KCP, WebSocket, Secure WebSocket
-2. **SMUX Layer**: Stream Multiplexing over a single transport connection
-3. **Session Manager**: Pool management and intelligent load balancing
-4. **Frame Protocol**: UDP packet encapsulation for tunnel traversal
 
 ---
 
-## ⚙️ Configuration Options | تنظیمات
-
-### YAML Configuration | فایل کانفیگ YAML
-
-Netrix supports YAML configuration files for advanced setups. Here are all available options:
-
 <div dir="rtl">
 
-Netrix از فایل‌های کانفیگ YAML پشتیبانی می‌کند. در ادامه تمام تنظیمات موجود:
+## تنظیمات سرور (Server Configuration)
 
-</div>
-
-#### Basic Settings | تنظیمات پایه
-
-```yaml
-# Mode: "server" or "client"
-mode: "server"
-
-# Pre-shared key for authentication (required)
-psk: "your_secret_key"
-
-# Performance profile: balanced, aggressive, latency, cpu-efficient
-profile: "balanced"
-```
-
-#### Server Settings | تنظیمات سرور
-
-```yaml
-# Server listen address
-listen: "0.0.0.0:4000"
-
-# Default transport: tcpmux, kcpmux, wsmux, wssmux
-transport: "tcpmux"
-
-# Port mappings (what ports to expose)
-maps:
-  - type: "tcp"              # tcp or udp
-    bind: "0.0.0.0:2066"     # Port to listen on
-    target: "127.0.0.1:22"   # Target service
-
-# Maximum concurrent sessions (0 = unlimited)
-max_sessions: 0
-
-# TLS certificate files (for wssmux)
-cert_file: "/path/to/cert.pem"
-key_file: "/path/to/key.pem"
-```
-
-#### Client Settings | تنظیمات کلاینت
-
-```yaml
-# Client paths (multiple paths supported)
-paths:
-  - transport: "tcpmux"           # Transport type
-    addr: "SERVER_IP:4000"        # Server address
-    parallel: 4                    # Legacy: parallel connections
-    connection_pool: 4             # Number of simultaneous tunnels
-    aggressive_pool: false         # Aggressively reconnect
-    retry_interval: 3              # Retry interval in seconds
-    dial_timeout: 10               # Connection timeout in seconds
-    priority: 1                    # Path priority (optional)
-```
-
-#### SMUX Settings | تنظیمات SMUX
-
-```yaml
-smux:
-  keepalive: 8                     # Keep-alive interval (seconds)
-  max_recv: 8388608                # Max receive buffer (bytes, default: 8MB)
-  max_stream: 8388608              # Max stream buffer (bytes, default: 8MB)
-  frame_size: 32768               # Frame size (bytes, default: 32KB)
-```
-
-#### KCP Settings | تنظیمات KCP
-
-```yaml
-kcp:
-  nodelay: 1                       # Enable nodelay (0=disable, 1=enable)
-  interval: 10                     # Update interval (milliseconds)
-  resend: 2                        # Fast resend threshold
-  nc: 1                            # Disable congestion control (0=disable, 1=enable)
-  sndwnd: 768                      # Send window size
-  rcvwnd: 768                      # Receive window size
-  mtu: 1400                        # Maximum Transmission Unit
-```
-
-#### Advanced Settings | تنظیمات پیشرفته
-
-```yaml
-advanced:
-  # TCP settings
-  tcp_nodelay: true                # Enable TCP_NODELAY
-  tcp_keepalive: 15                # TCP keep-alive interval (seconds)
-  tcp_read_buffer: 4194304         # TCP read buffer (bytes, default: 4MB)
-  tcp_write_buffer: 4194304        # TCP write buffer (bytes, default: 4MB)
-  
-  # UDP settings
-  udp_read_buffer: 4194304         # UDP read buffer (bytes, default: 4MB)
-  udp_write_buffer: 4194304        # UDP write buffer (bytes, default: 4MB)
-  
-  # WebSocket settings
-  websocket_read_buffer: 262144    # WebSocket read buffer (bytes, default: 256KB)
-  websocket_write_buffer: 262144   # WebSocket write buffer (bytes, default: 256KB)
-  websocket_compression: false     # Enable WebSocket compression
-  
-  # Connection management
-  cleanup_interval: 3              # Cleanup interval (seconds)
-  session_timeout: 30              # Session timeout (seconds)
-  connection_timeout: 60           # Connection timeout (seconds)
-  stream_timeout: 120              # Stream timeout (seconds)
-  max_connections: 2000            # Maximum concurrent connections
-  
-  # UDP flow management
-  max_udp_flows: 1000              # Maximum concurrent UDP flows
-  udp_flow_timeout: 300            # UDP flow idle timeout (seconds)
-```
-
-#### Logging & Monitoring | لاگ و نظارت
-
-```yaml
-# Heartbeat interval (seconds)
-heartbeat: 10
-
-# Enable verbose logging
-verbose: false
-```
-
-### CLI Flags | فلگ‌های خط فرمان
-
-#### Server Flags | فلگ‌های سرور
+### Flags سمت سرور
 
 ```bash
 netrix server [OPTIONS]
-
-Basic Options:
-  -listen string        # Tunnel listen address (default: ":4000")
-  -transport string     # Transport: tcpmux|kcpmux|wsmux|wssmux (default: "tcpmux")
-  -map string           # Maps: "tcp::bind->target,udp::bind->target"
-  -psk string           # Pre-shared key (required)
-  -profile string       # Profile: balanced|aggressive|latency|cpu-efficient (default: "balanced")
-  -verbose              # Enable verbose logging
-  -cert string          # TLS certificate file path (for wssmux)
-  -key string           # TLS private key file path (for wssmux)
-
-SMUX Options:
-  -smux-keepalive int   # SMUX keepalive interval (seconds, override profile)
-  -smux-max-recv int    # SMUX max receive buffer (bytes, override profile)
-  -smux-max-stream int  # SMUX max stream buffer (bytes, override profile)
-  -smux-frame-size int  # SMUX frame size (bytes, override profile, default: 32768)
-
-KCP Options:
-  -kcp-nodelay int      # KCP nodelay (override profile: 0=disable, 1=enable)
-  -kcp-interval int     # KCP interval (milliseconds, override profile)
-  -kcp-resend int       # KCP resend threshold (override profile)
-  -kcp-nc int           # KCP nc - disable congestion control (override profile: 0=disable, 1=enable)
-  -kcp-sndwnd int       # KCP send window (override profile)
-  -kcp-rcvwnd int       # KCP receive window (override profile)
-  -kcp-mtu int          # KCP MTU (override profile)
 ```
 
-#### Client Flags | فلگ‌های کلاینت
+#### تنظیمات پایه:
 
-```bash
-netrix client [OPTIONS]
+**-listen string**
+- آدرس و پورت برای گوش دادن به اتصالات تونل
+- پیش‌فرض: `:4000`
+- مثال: `0.0.0.0:4000` یا `:4000`
 
-Basic Options:
-  -server string        # Server address host:port (legacy single-path mode)
-  -transport string     # Transport: tcpmux|kcpmux|wsmux|wssmux (default: "tcpmux")
-  -paths string         # Multi-path: "tcpmux:addr:parallel,kcpmux:addr:parallel,..."
-  -psk string           # Pre-shared key (required)
-  -profile string       # Profile: balanced|aggressive|latency|cpu-efficient (default: "balanced")
-  -verbose              # Enable verbose logging
+**-transport string**
+- نوع transport: `tcpmux`, `kcpmux`, `wsmux`, `wssmux`
+- پیش‌فرض: `tcpmux`
+- همچنین پشتیبانی می‌شود: `tcp`, `kcp`, `ws`, `wss` (برای سازگاری)
 
-Connection Pool Options:
-  -parallel int         # Number of parallel tunnels (legacy, default: 1)
-  -connection-pool int  # Number of simultaneous tunnels (alias of parallel, default: 0)
-  -aggressive-pool      # Aggressively re-dial tunnels to minimize downtime
-  -retry-interval duration  # Retry interval for dial errors (default: 3s)
-  -dial-timeout duration    # Dial timeout for tunnel transports (default: 10s)
+**-map string**
+- مپ کردن پورت‌ها: `"tcp::bind->target,udp::bind->target"`
+- مثال: `"tcp::0.0.0.0:2066->127.0.0.1:22,udp::0.0.0.0:2066->127.0.0.1:2066"`
 
-SMUX Options: (same as server)
-  -smux-keepalive int
-  -smux-max-recv int
-  -smux-max-stream int
-  -smux-frame-size int
+**-psk string**
+- Pre-shared key برای احراز هویت (اختیاری، اگر خالی باشد authentication غیرفعال است)
 
-KCP Options: (same as server)
-  -kcp-nodelay int
-  -kcp-interval int
-  -kcp-resend int
-  -kcp-nc int
-  -kcp-sndwnd int
-  -kcp-rcvwnd int
-  -kcp-mtu int
-```
+**-profile string**
+- پروفایل عملکرد: `balanced`, `aggressive`, `latency`, `cpu-efficient`
+- پیش‌فرض: `balanced`
 
----
+**-verbose**
+- فعال‌سازی logging دقیق برای debugging
 
-## 📋 Transport Protocol Examples | نمونه‌های پروتکل‌های انتقال
+**-cert string**
+- مسیر فایل گواهینامه TLS (برای wssmux)
 
-### 1. TCP Multiplexing (tcpmux)
+**-key string**
+- مسیر فایل private key TLS (برای wssmux)
 
-<div dir="rtl">
+#### تنظیمات SMUX:
 
-**TCP Multiplexing** از پروتکل TCP استاندارد با SMUX استفاده می‌کند. مناسب برای اکثر کاربردها با reliability بالا.
+**-smux-keepalive int**
+- فاصله زمانی keepalive برای SMUX (ثانیه)
+- بازنویسی می‌کند profile
+
+**-smux-max-recv int**
+- حداکثر buffer دریافت برای SMUX (بایت)
+- بازنویسی می‌کند profile
+
+**-smux-max-stream int**
+- حداکثر buffer stream برای SMUX (بایت)
+- بازنویسی می‌کند profile
+
+**-smux-frame-size int**
+- اندازه frame برای SMUX (بایت)
+- پیش‌فرض: `32768` (32KB)
+- بازنویسی می‌کند profile
+
+#### تنظیمات KCP:
+
+**-kcp-nodelay int**
+- فعال‌سازی nodelay برای KCP
+- `0` = غیرفعال, `1` = فعال
+- بازنویسی می‌کند profile
+
+**-kcp-interval int**
+- فاصله زمانی update برای KCP (میلی‌ثانیه)
+- بازنویسی می‌کند profile
+
+**-kcp-resend int**
+- آستانه resend سریع برای KCP
+- بازنویسی می‌کند profile
+
+**-kcp-nc int**
+- غیرفعال‌سازی congestion control برای KCP
+- `0` = غیرفعال, `1` = فعال
+- بازنویسی می‌کند profile
+
+**-kcp-sndwnd int**
+- اندازه پنجره ارسال برای KCP
+- بازنویسی می‌کند profile
+
+**-kcp-rcvwnd int**
+- اندازه پنجره دریافت برای KCP
+- بازنویسی می‌کند profile
+
+**-kcp-mtu int**
+- Maximum Transmission Unit برای KCP
+- بازنویسی می‌کند profile
 
 </div>
 
-**TCP Multiplexing** uses standard TCP protocol with SMUX. Suitable for most use cases with high reliability.
+---
 
-#### Server Configuration File | فایل کانفیگ سرور
+<div dir="rtl">
 
-Create `server-tcp.yaml`:
+## تنظیمات کلاینت (Client Configuration)
+
+### Flags سمت کلاینت
+
+```bash
+netrix client [OPTIONS]
+```
+
+#### تنظیمات پایه:
+
+**-server string**
+- آدرس سرور به صورت `host:port` (حالت legacy single-path)
+
+**-transport string**
+- نوع transport: `tcpmux`, `kcpmux`, `wsmux`, `wssmux`
+- پیش‌فرض: `tcpmux`
+- همچنین پشتیبانی می‌شود: `tcp`, `kcp`, `ws`, `wss` (برای سازگاری)
+
+**-parallel int**
+- تعداد تونل‌های موازی (legacy mode)
+- پیش‌فرض: `1`
+
+**-paths string**
+- حالت multi-path: `"tcpmux:addr:parallel,kcpmux:addr:parallel,..."`
+- مثال: `"tcpmux:SERVER_IP:4000:2,kcpmux:SERVER_IP:4001:2"`
+
+**-psk string**
+- Pre-shared key (باید با سرور مطابقت داشته باشد)
+
+**-profile string**
+- پروفایل عملکرد: `balanced`, `aggressive`, `latency`, `cpu-efficient`
+- پیش‌فرض: `balanced`
+
+**-verbose**
+- فعال‌سازی logging دقیق برای debugging
+
+#### تنظیمات Connection Pool:
+
+**-connection-pool int**
+- تعداد تونل‌های همزمان (alias برای parallel)
+- پیش‌فرض: `0` (استفاده از parallel)
+
+**-aggressive-pool**
+- به صورت تهاجمی تونل‌ها را دوباره dial می‌کند برای کاهش downtime
+
+**-retry-interval duration**
+- فاصله زمانی retry برای خطاهای dial (مثال: `3s`)
+- پیش‌فرض: `3s`
+
+**-dial-timeout duration**
+- Timeout برای dial کردن transport تونل (مثال: `10s`)
+- پیش‌فرض: `10s`
+
+#### تنظیمات SMUX:
+
+**-smux-keepalive int**
+- فاصله زمانی keepalive برای SMUX (ثانیه)
+- بازنویسی می‌کند profile
+
+**-smux-max-recv int**
+- حداکثر buffer دریافت برای SMUX (بایت)
+- بازنویسی می‌کند profile
+
+**-smux-max-stream int**
+- حداکثر buffer stream برای SMUX (بایت)
+- بازنویسی می‌کند profile
+
+**-smux-frame-size int**
+- اندازه frame برای SMUX (بایت)
+- پیش‌فرض: `32768` (32KB)
+- بازنویسی می‌کند profile
+
+#### تنظیمات KCP:
+
+**-kcp-nodelay int**
+- فعال‌سازی nodelay برای KCP
+- `0` = غیرفعال, `1` = فعال
+- بازنویسی می‌کند profile
+
+**-kcp-interval int**
+- فاصله زمانی update برای KCP (میلی‌ثانیه)
+- بازنویسی می‌کند profile
+
+**-kcp-resend int**
+- آستانه resend سریع برای KCP
+- بازنویسی می‌کند profile
+
+**-kcp-nc int**
+- غیرفعال‌سازی congestion control برای KCP
+- `0` = غیرفعال, `1` = فعال
+- بازنویسی می‌کند profile
+
+**-kcp-sndwnd int**
+- اندازه پنجره ارسال برای KCP
+- بازنویسی می‌کند profile
+
+**-kcp-rcvwnd int**
+- اندازه پنجره دریافت برای KCP
+- بازنویسی می‌کند profile
+
+**-kcp-mtu int**
+- Maximum Transmission Unit برای KCP
+- بازنویسی می‌کند profile
+
+</div>
+
+---
+
+<div dir="rtl">
+
+## مثال‌های کامل برای هر Transport
+
+### TCP Multiplexing (tcpmux)
+
+**فایل سرور: server-tcp.yaml**
 
 ```yaml
 mode: "server"
@@ -322,14 +294,13 @@ heartbeat: 10
 verbose: false
 ```
 
-Run server:
+**اجرای سرور:**
+
 ```bash
 netrix -config server-tcp.yaml
 ```
 
-#### Client Configuration File | فایل کانفیگ کلاینت
-
-Create `client-tcp.yaml`:
+**فایل کلاینت: client-tcp.yaml**
 
 ```yaml
 mode: "client"
@@ -348,26 +319,17 @@ heartbeat: 10
 verbose: false
 ```
 
-Run client:
+**اجرای کلاینت:**
+
 ```bash
 netrix -config client-tcp.yaml
 ```
 
 ---
 
-### 2. KCP Multiplexing (kcpmux)
+### KCP Multiplexing (kcpmux)
 
-<div dir="rtl">
-
-**KCP Multiplexing** از پروتکل KCP (UDP-based) با SMUX استفاده می‌کند. مناسب برای gaming، live streaming و کاربردهای حساس به latency.
-
-</div>
-
-**KCP Multiplexing** uses KCP protocol (UDP-based) with SMUX. Ideal for gaming, live streaming, and latency-sensitive applications.
-
-#### Server Configuration File | فایل کانفیگ سرور
-
-Create `server-kcp.yaml`:
+**فایل سرور: server-kcp.yaml**
 
 ```yaml
 mode: "server"
@@ -397,14 +359,13 @@ heartbeat: 10
 verbose: false
 ```
 
-Run server:
+**اجرای سرور:**
+
 ```bash
 netrix -config server-kcp.yaml
 ```
 
-#### Client Configuration File | فایل کانفیگ کلاینت
-
-Create `client-kcp.yaml`:
+**فایل کلاینت: client-kcp.yaml**
 
 ```yaml
 mode: "client"
@@ -432,26 +393,17 @@ heartbeat: 10
 verbose: false
 ```
 
-Run client:
+**اجرای کلاینت:**
+
 ```bash
 netrix -config client-kcp.yaml
 ```
 
 ---
 
-### 3. WebSocket Multiplexing (wsmux)
+### WebSocket Multiplexing (wsmux)
 
-<div dir="rtl">
-
-**WebSocket Multiplexing** از پروتکل WebSocket با SMUX استفاده می‌کند. مناسب برای عبور از فایروال‌های HTTP-aware و پروکسی‌ها.
-
-</div>
-
-**WebSocket Multiplexing** uses WebSocket protocol with SMUX. Ideal for bypassing HTTP-aware firewalls and proxies.
-
-#### Server Configuration File | فایل کانفیگ سرور
-
-Create `server-ws.yaml`:
+**فایل سرور: server-ws.yaml**
 
 ```yaml
 mode: "server"
@@ -477,14 +429,13 @@ heartbeat: 10
 verbose: false
 ```
 
-Run server:
+**اجرای سرور:**
+
 ```bash
 netrix -config server-ws.yaml
 ```
 
-#### Client Configuration File | فایل کانفیگ کلاینت
-
-Create `client-ws.yaml`:
+**فایل کلاینت: client-ws.yaml**
 
 ```yaml
 mode: "client"
@@ -508,39 +459,25 @@ heartbeat: 10
 verbose: false
 ```
 
-Run client:
+**اجرای کلاینت:**
+
 ```bash
 netrix -config client-ws.yaml
 ```
 
 ---
 
-### 4. Secure WebSocket Multiplexing (wssmux)
+### Secure WebSocket Multiplexing (wssmux)
 
-<div dir="rtl">
-
-**Secure WebSocket Multiplexing** از WebSocket با TLS/SSL استفاده می‌کند. مناسب برای اتصالات امن و عبور از فایروال‌ها.
-
-</div>
-
-**Secure WebSocket Multiplexing** uses WebSocket with TLS/SSL encryption. Ideal for secure connections and firewall bypass.
-
-#### Generate TLS Certificate | تولید گواهینامه TLS
+**تولید گواهینامه TLS:**
 
 ```bash
-# Generate private key
 openssl genpkey -algorithm RSA -out server.key -pkeyopt rsa_keygen_bits:2048
-
-# Generate certificate signing request
 openssl req -new -key server.key -out server.csr
-
-# Generate self-signed certificate (valid for 365 days)
 openssl x509 -req -in server.csr -signkey server.key -out server.crt -days 365
 ```
 
-#### Server Configuration File | فایل کانفیگ سرور
-
-Create `server-wss.yaml`:
+**فایل سرور: server-wss.yaml**
 
 ```yaml
 mode: "server"
@@ -569,14 +506,13 @@ heartbeat: 10
 verbose: false
 ```
 
-Run server:
+**اجرای سرور:**
+
 ```bash
 netrix -config server-wss.yaml
 ```
 
-#### Client Configuration File | فایل کانفیگ کلاینت
-
-Create `client-wss.yaml`:
+**فایل کلاینت: client-wss.yaml**
 
 ```yaml
 mode: "client"
@@ -600,46 +536,549 @@ heartbeat: 10
 verbose: false
 ```
 
-Run client:
+**اجرای کلاینت:**
+
+```bash
+netrix -config client-wss.yaml
+```
+
+</div>
+
+---
+
+## Netrix - Advanced Reverse Tunneling Solution
+
+**Netrix** is an advanced and professional reverse tunneling solution designed for NAT traversal, firewall bypass, and network restrictions.
+
+### About Reverse Tunneling
+
+Reverse tunneling is a network technique that allows you to connect from a restricted network (like home or corporate network with NAT and firewall) to an external server, then use that server to access local services.
+
+**How it works:**
+1. Client (inside restricted network) connects to external server
+2. Server accesses local services through this connection
+3. Users connect to local services through the server
+
+**Benefits:**
+- ✅ NAT traversal without port forwarding
+- ✅ Firewall bypass through TCP/WebSocket
+- ✅ Security with PSK authentication and TLS encryption
+- ✅ High performance for massive connections
+- ✅ Multiplexing: multiple connections over one tunnel
+- ✅ Full UDP support with frame protocol
+
+**Use Cases:**
+- 🎮 Gaming: Connect to game servers behind NAT
+- 🖥️ Remote Access: Remote access to local services
+- 📡 Service Exposure: Expose local services to internet
+- 🔒 Bypass Restrictions: Bypass network restrictions
+- 🌐 VPN Alternative: Alternative to traditional VPN
+
+### Netrix Architecture
+
+Netrix uses a multi-layer architecture:
+
+**1. Transport Layer (TCP, KCP, WebSocket, WSS)**
+- Base connection between client and server
+- TCP: Reliable and stable
+- KCP: Fast and low latency for gaming
+- WebSocket: Bypass HTTP-aware firewalls
+- WSS: Secure with TLS/SSL
+
+**2. SMUX Layer (Stream Multiplexing)**
+- Multiple streams over one transport connection
+- Reduced overhead and optimal usage
+- Concurrent connection capability
+
+**3. Session Manager Layer**
+- Session pool management
+- Intelligent load balancing (least-loaded)
+- Precise stream tracking
+
+**4. Frame Protocol for UDP**
+- Encapsulate UDP packets in frames
+- UDP traversal through tunnel
+- Multiple UDP flow management
+
+---
+
+## Server Configuration
+
+### Server Flags
+
+```bash
+netrix server [OPTIONS]
+```
+
+#### Basic Options:
+
+**-listen string**
+- Address and port to listen for tunnel connections
+- Default: `:4000`
+- Example: `0.0.0.0:4000` or `:4000`
+
+**-transport string**
+- Transport type: `tcpmux`, `kcpmux`, `wsmux`, `wssmux`
+- Default: `tcpmux`
+- Also supported: `tcp`, `kcp`, `ws`, `wss` (for compatibility)
+
+**-map string**
+- Port mappings: `"tcp::bind->target,udp::bind->target"`
+- Example: `"tcp::0.0.0.0:2066->127.0.0.1:22,udp::0.0.0.0:2066->127.0.0.1:2066"`
+
+**-psk string**
+- Pre-shared key for authentication (optional, empty disables auth)
+
+**-profile string**
+- Performance profile: `balanced`, `aggressive`, `latency`, `cpu-efficient`
+- Default: `balanced`
+
+**-verbose**
+- Enable verbose logging for debugging
+
+**-cert string**
+- TLS certificate file path (for wssmux)
+
+**-key string**
+- TLS private key file path (for wssmux)
+
+#### SMUX Options:
+
+**-smux-keepalive int**
+- SMUX keepalive interval (seconds)
+- Overrides profile
+
+**-smux-max-recv int**
+- SMUX max receive buffer (bytes)
+- Overrides profile
+
+**-smux-max-stream int**
+- SMUX max stream buffer (bytes)
+- Overrides profile
+
+**-smux-frame-size int**
+- SMUX frame size (bytes)
+- Default: `32768` (32KB)
+- Overrides profile
+
+#### KCP Options:
+
+**-kcp-nodelay int**
+- Enable KCP nodelay
+- `0` = disable, `1` = enable
+- Overrides profile
+
+**-kcp-interval int**
+- KCP update interval (milliseconds)
+- Overrides profile
+
+**-kcp-resend int**
+- KCP fast resend threshold
+- Overrides profile
+
+**-kcp-nc int**
+- Disable KCP congestion control
+- `0` = disable, `1` = enable
+- Overrides profile
+
+**-kcp-sndwnd int**
+- KCP send window size
+- Overrides profile
+
+**-kcp-rcvwnd int**
+- KCP receive window size
+- Overrides profile
+
+**-kcp-mtu int**
+- KCP Maximum Transmission Unit
+- Overrides profile
+
+---
+
+## Client Configuration
+
+### Client Flags
+
+```bash
+netrix client [OPTIONS]
+```
+
+#### Basic Options:
+
+**-server string**
+- Server address as `host:port` (legacy single-path mode)
+
+**-transport string**
+- Transport type: `tcpmux`, `kcpmux`, `wsmux`, `wssmux`
+- Default: `tcpmux`
+- Also supported: `tcp`, `kcp`, `ws`, `wss` (for compatibility)
+
+**-parallel int**
+- Number of parallel tunnels (legacy mode)
+- Default: `1`
+
+**-paths string**
+- Multi-path mode: `"tcpmux:addr:parallel,kcpmux:addr:parallel,..."`
+- Example: `"tcpmux:SERVER_IP:4000:2,kcpmux:SERVER_IP:4001:2"`
+
+**-psk string**
+- Pre-shared key (must match server)
+
+**-profile string**
+- Performance profile: `balanced`, `aggressive`, `latency`, `cpu-efficient`
+- Default: `balanced`
+
+**-verbose**
+- Enable verbose logging for debugging
+
+#### Connection Pool Options:
+
+**-connection-pool int**
+- Number of simultaneous tunnels (alias for parallel)
+- Default: `0` (uses parallel)
+
+**-aggressive-pool**
+- Aggressively re-dial tunnels to minimize downtime
+
+**-retry-interval duration**
+- Retry interval for dial errors (e.g., `3s`)
+- Default: `3s`
+
+**-dial-timeout duration**
+- Timeout for dialing tunnel transports (e.g., `10s`)
+- Default: `10s`
+
+#### SMUX Options:
+
+**-smux-keepalive int**
+- SMUX keepalive interval (seconds)
+- Overrides profile
+
+**-smux-max-recv int**
+- SMUX max receive buffer (bytes)
+- Overrides profile
+
+**-smux-max-stream int**
+- SMUX max stream buffer (bytes)
+- Overrides profile
+
+**-smux-frame-size int**
+- SMUX frame size (bytes)
+- Default: `32768` (32KB)
+- Overrides profile
+
+#### KCP Options:
+
+**-kcp-nodelay int**
+- Enable KCP nodelay
+- `0` = disable, `1` = enable
+- Overrides profile
+
+**-kcp-interval int**
+- KCP update interval (milliseconds)
+- Overrides profile
+
+**-kcp-resend int**
+- KCP fast resend threshold
+- Overrides profile
+
+**-kcp-nc int**
+- Disable KCP congestion control
+- `0` = disable, `1` = enable
+- Overrides profile
+
+**-kcp-sndwnd int**
+- KCP send window size
+- Overrides profile
+
+**-kcp-rcvwnd int**
+- KCP receive window size
+- Overrides profile
+
+**-kcp-mtu int**
+- KCP Maximum Transmission Unit
+- Overrides profile
+
+---
+
+## Complete Examples for Each Transport
+
+### TCP Multiplexing (tcpmux)
+
+**Server file: server-tcp.yaml**
+
+```yaml
+mode: "server"
+listen: "0.0.0.0:4000"
+transport: "tcpmux"
+psk: "your_secret_key_here"
+profile: "balanced"
+
+maps:
+  - type: "tcp"
+    bind: "0.0.0.0:2066"
+    target: "127.0.0.1:22"
+  - type: "udp"
+    bind: "0.0.0.0:2066"
+    target: "127.0.0.1:2066"
+
+heartbeat: 10
+verbose: false
+```
+
+**Run server:**
+
+```bash
+netrix -config server-tcp.yaml
+```
+
+**Client file: client-tcp.yaml**
+
+```yaml
+mode: "client"
+psk: "your_secret_key_here"
+profile: "balanced"
+
+paths:
+  - transport: "tcpmux"
+    addr: "SERVER_IP:4000"
+    connection_pool: 4
+    aggressive_pool: false
+    retry_interval: 3
+    dial_timeout: 10
+
+heartbeat: 10
+verbose: false
+```
+
+**Run client:**
+
+```bash
+netrix -config client-tcp.yaml
+```
+
+---
+
+### KCP Multiplexing (kcpmux)
+
+**Server file: server-kcp.yaml**
+
+```yaml
+mode: "server"
+listen: "0.0.0.0:4001"
+transport: "kcpmux"
+psk: "your_secret_key_here"
+profile: "latency"
+
+maps:
+  - type: "tcp"
+    bind: "0.0.0.0:2066"
+    target: "127.0.0.1:22"
+  - type: "udp"
+    bind: "0.0.0.0:2066"
+    target: "127.0.0.1:2066"
+
+kcp:
+  nodelay: 1
+  interval: 8
+  resend: 2
+  nc: 1
+  sndwnd: 768
+  rcvwnd: 768
+  mtu: 1350
+
+heartbeat: 10
+verbose: false
+```
+
+**Run server:**
+
+```bash
+netrix -config server-kcp.yaml
+```
+
+**Client file: client-kcp.yaml**
+
+```yaml
+mode: "client"
+psk: "your_secret_key_here"
+profile: "latency"
+
+paths:
+  - transport: "kcpmux"
+    addr: "SERVER_IP:4001"
+    connection_pool: 4
+    aggressive_pool: true
+    retry_interval: 1
+    dial_timeout: 5
+
+kcp:
+  nodelay: 1
+  interval: 8
+  resend: 2
+  nc: 1
+  sndwnd: 512
+  rcvwnd: 512
+  mtu: 1350
+
+heartbeat: 10
+verbose: false
+```
+
+**Run client:**
+
+```bash
+netrix -config client-kcp.yaml
+```
+
+---
+
+### WebSocket Multiplexing (wsmux)
+
+**Server file: server-ws.yaml**
+
+```yaml
+mode: "server"
+listen: "0.0.0.0:8080"
+transport: "wsmux"
+psk: "your_secret_key_here"
+profile: "balanced"
+
+maps:
+  - type: "tcp"
+    bind: "0.0.0.0:2066"
+    target: "127.0.0.1:22"
+  - type: "udp"
+    bind: "0.0.0.0:2066"
+    target: "127.0.0.1:2066"
+
+advanced:
+  websocket_read_buffer: 262144
+  websocket_write_buffer: 262144
+  websocket_compression: false
+
+heartbeat: 10
+verbose: false
+```
+
+**Run server:**
+
+```bash
+netrix -config server-ws.yaml
+```
+
+**Client file: client-ws.yaml**
+
+```yaml
+mode: "client"
+psk: "your_secret_key_here"
+profile: "balanced"
+
+paths:
+  - transport: "wsmux"
+    addr: "SERVER_IP:8080"
+    connection_pool: 8
+    aggressive_pool: false
+    retry_interval: 3
+    dial_timeout: 10
+
+advanced:
+  websocket_read_buffer: 262144
+  websocket_write_buffer: 262144
+  websocket_compression: false
+
+heartbeat: 10
+verbose: false
+```
+
+**Run client:**
+
+```bash
+netrix -config client-ws.yaml
+```
+
+---
+
+### Secure WebSocket Multiplexing (wssmux)
+
+**Generate TLS Certificate:**
+
+```bash
+openssl genpkey -algorithm RSA -out server.key -pkeyopt rsa_keygen_bits:2048
+openssl req -new -key server.key -out server.csr
+openssl x509 -req -in server.csr -signkey server.key -out server.crt -days 365
+```
+
+**Server file: server-wss.yaml**
+
+```yaml
+mode: "server"
+listen: "0.0.0.0:8443"
+transport: "wssmux"
+psk: "your_secret_key_here"
+profile: "balanced"
+
+cert_file: "/path/to/server.crt"
+key_file: "/path/to/server.key"
+
+maps:
+  - type: "tcp"
+    bind: "0.0.0.0:2066"
+    target: "127.0.0.1:22"
+  - type: "udp"
+    bind: "0.0.0.0:2066"
+    target: "127.0.0.1:2066"
+
+advanced:
+  websocket_read_buffer: 262144
+  websocket_write_buffer: 262144
+  websocket_compression: false
+
+heartbeat: 10
+verbose: false
+```
+
+**Run server:**
+
+```bash
+netrix -config server-wss.yaml
+```
+
+**Client file: client-wss.yaml**
+
+```yaml
+mode: "client"
+psk: "your_secret_key_here"
+profile: "balanced"
+
+paths:
+  - transport: "wssmux"
+    addr: "SERVER_IP:8443"
+    connection_pool: 8
+    aggressive_pool: false
+    retry_interval: 3
+    dial_timeout: 10
+
+advanced:
+  websocket_read_buffer: 262144
+  websocket_write_buffer: 262144
+  websocket_compression: false
+
+heartbeat: 10
+verbose: false
+```
+
+**Run client:**
+
 ```bash
 netrix -config client-wss.yaml
 ```
 
 ---
 
-## 🚀 Quick Start | شروع سریع
-
-### Installation | نصب
-
-```bash
-git clone https://github.com/yourusername/netrix.git
-cd netrix
-go build -o netrix
-```
-
-### Basic Usage | استفاده پایه
-
-#### Server (TCP):
-```bash
-netrix server -listen 0.0.0.0:4000 -transport tcpmux -psk your_secret_key -map "tcp::0.0.0.0:2066->127.0.0.1:22"
-```
-
-#### Client (TCP):
-```bash
-netrix client -server SERVER_IP:4000 -transport tcpmux -parallel 4 -psk your_secret_key
-```
-
----
-
-## 📄 License | مجوز
+## License
 
 This project is commercial software. Please contact the author for licensing information.
-
-<div dir="rtl">
-
-این پروژه نرم‌افزار تجاری است. لطفاً برای اطلاعات مجوز با نویسنده تماس بگیرید.
-
-</div>
 
 ---
 
