@@ -1,5 +1,25 @@
 # Netrix - Advanced Reverse Tunneling Solution
 
+[![Go Version](https://img.shields.io/badge/Go-1.20+-00ADD8?style=flat&logo=go)](https://golang.org/)
+[![License](https://img.shields.io/badge/License-Commercial-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-Stable-green.svg)](https://github.com/yourusername/netrix/releases)
+
+---
+
+## 🌐 Language | زبان
+
+**English** | [فارسی (Persian)](#about-netrix-reverse-tunneling-فارسی)
+
+<div dir="rtl">
+
+**فارسی** | [English (انگلیسی)](#about-netrix-reverse-tunneling)
+
+</div>
+
+---
+
+<a id="about-netrix-reverse-tunneling"></a>
+
 ## About Netrix Reverse Tunneling
 
 **Netrix** is an advanced and professional reverse tunneling solution designed for NAT traversal, firewall bypass, and network restrictions.
@@ -563,6 +583,8 @@ netrix -config client-wss.yaml
 ---
 
 <div dir="rtl">
+
+<a id="about-netrix-reverse-tunneling-فارسی"></a>
 
 ## درباره تونل معکوس Netrix
 
