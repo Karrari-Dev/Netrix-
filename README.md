@@ -8,11 +8,11 @@
 
 ## 🌐 Language | زبان
 
-**English** | [فارسی (Persian)](#about-netrix-reverse-tunneling-فارسی)
+**فارسی** | [فارسی (Persian)](#about-netrix-reverse-tunneling-فارسی)
 
 <div dir="rtl">
 
-**فارسی** | [English (انگلیسی)](#about-netrix-reverse-tunneling)
+**English** | [English (انگلیسی)](#about-netrix-reverse-tunneling)
 
 </div>
 
