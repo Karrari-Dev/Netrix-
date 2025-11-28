@@ -3,24 +3,6 @@ import os, sys, time, subprocess, shutil, socket, signal, urllib.request, platfo
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-# Auto-chmod: Make this script executable if it's not
-def ensure_executable():
-    """Make this script executable if it's not already"""
-    try:
-        script_path = os.path.abspath(__file__)
-        current_permissions = os.stat(script_path).st_mode
-        
-        # Check if executable bit is set for owner
-        if not (current_permissions & stat.S_IXUSR):
-            # Add executable permission for owner, group, and others
-            os.chmod(script_path, current_permissions | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            print(f"\033[32m✓ Made script executable: {script_path}\033[0m")
-    except Exception:
-        pass  # Silently fail if we can't chmod (e.g., no permissions)
-
-# Run auto-chmod on import
-ensure_executable()
-
 try:
     import yaml
 except ImportError:
@@ -30,7 +12,10 @@ except ImportError:
 
 ROOT_DIR = Path("/root")
 NETRIX_BINARY = "/usr/local/bin/netrix"
-NETRIX_RELEASE_URL = "https://github.com/karrari-dev/netrix/releases/latest/download/netrix-{arch}"  # URL دانلود هسته
+NETRIX_RELEASE_URLS = {
+    "amd64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v1.0.0/netrix-amd64.tar.gz",
+    "arm64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v1.0.0/netrix-arm64.tar.gz"
+}
 
 
 FG_BLACK = "\033[30m"
@@ -1869,21 +1854,19 @@ def install_netrix_core():
         go_arch = arch_map.get(arch, "amd64")
         print(f"  {BOLD}Architecture:{RESET} {FG_GREEN}{arch} {FG_WHITE}({go_arch}){RESET}")
         
-        default_url = NETRIX_RELEASE_URL.format(arch=go_arch)
-        print(f"\n  {BOLD}{FG_YELLOW}Note:{RESET} Provide download URL for Netrix Core")
-        print(f"  {FG_WHITE}Default:{RESET} {FG_CYAN}{default_url}{RESET}")
-        
-        try:
-            download_url = input(f"\n  {BOLD}Download URL:{RESET} {FG_WHITE}(press Enter for default){RESET} ").strip()
-        except KeyboardInterrupt:
-            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
-            raise UserCancelled()
-        
+        # انتخاب لینک بر اساس معماری
+        download_url = NETRIX_RELEASE_URLS.get(go_arch)
         if not download_url:
-            download_url = default_url
+            c_err(f"  ❌ Unsupported architecture: {go_arch}")
+            c_warn(f"  Supported: amd64 (x86_64), arm64 (aarch64)")
+            pause()
+            return
+        
+        print(f"\n  {BOLD}{FG_CYAN}Download URL:{RESET} {FG_GREEN}{download_url}{RESET}")
         
         print(f"\n  {FG_CYAN}Downloading Netrix Core from:{RESET} {FG_GREEN}{download_url}{RESET}")
-        temp_file = Path("/tmp/netrix")
+        temp_file = Path("/tmp/netrix.tar.gz")
+        temp_dir = Path("/tmp/netrix_extract")
         
         try:
             print(f"  {FG_CYAN}⏳ Downloading...{RESET}")
@@ -1911,6 +1894,40 @@ def install_netrix_core():
             pause()
             return
         
+        # Extract tar.gz
+        print(f"\n  {FG_CYAN}Extracting archive...{RESET}")
+        try:
+            import tarfile
+            
+            # ساخت دایرکتوری موقت برای extract
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Extract
+            with tarfile.open(temp_file, 'r:gz') as tar:
+                tar.extractall(temp_dir)
+            
+            c_ok(f"  ✅ Archive extracted")
+            
+            # پیدا کردن فایل netrix در دایرکتوری extract شده
+            netrix_file = None
+            for file in temp_dir.rglob("netrix"):
+                if file.is_file():
+                    netrix_file = file
+                    break
+            
+            if not netrix_file:
+                raise Exception("netrix binary not found in archive")
+            
+        except Exception as e:
+            c_err(f"  ❌ Failed to extract: {FG_RED}{str(e)}{RESET}")
+            if temp_file.exists():
+                temp_file.unlink()
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+            pause()
+            return
 
         print(f"\n  {FG_CYAN}Installing Netrix Core to {NETRIX_BINARY}...{RESET}")
         try:
@@ -1922,11 +1939,13 @@ def install_netrix_core():
                 shutil.copy(NETRIX_BINARY, backup_file)
                 print(f"  {FG_YELLOW}Old version backed up to: {backup_file}{RESET}")
             
-            shutil.copy(temp_file, NETRIX_BINARY)
+            shutil.copy(netrix_file, NETRIX_BINARY)
             
             os.chmod(NETRIX_BINARY, 0o755)
             
+            # پاک کردن فایل‌های موقت
             temp_file.unlink()
+            shutil.rmtree(temp_dir)
             
             c_ok(f"  ✅ Netrix Core installed successfully!")
             c_ok(f"  ✅ Binary location: {FG_GREEN}{NETRIX_BINARY}{RESET}")
