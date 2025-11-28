@@ -76,6 +76,58 @@ Netrix uses a multi-layer architecture:
 
 ---
 
+## 🚀 Quick Start with Management Script
+
+For easier tunnel management, we provide a Python management script that handles configuration, installation, and system optimization automatically.
+
+### Installation
+
+```bash
+# Download the script
+wget https://raw.githubusercontent.com/YOUR_USERNAME/netrix/main/netrix.py -O /usr/local/bin/netrixcore
+```
+
+**Note:** The script is installed as `netrixcore` command and can be run from anywhere in your system.
+ipt is installed as `netrixcore` command and can be run from anywhere in your system.
+
+```
+
+### Features
+- ✅ **Interactive Menu**: Easy-to-use interface for tunnel management
+- ✅ **Auto Configuration**: Automatically generates YAML config files
+- ✅ **Core Management**: Install/Update/Delete Netrix core binary
+- ✅ **Systemd Integration**: Auto-start tunnels on boot with systemd
+- ✅ **System Optimizer**: Optimize Linux kernel parameters for high performance
+- ✅ **Multi-Transport**: Support for TCP, KCP, WebSocket, and WSS
+- ✅ **Certificate Management**: Automatic Let's Encrypt certificate acquisition
+- ✅ **Profile Selection**: Choose from 4 performance profiles
+- ✅ **Port Mapping**: Easy TCP/UDP port mapping with ranges support
+
+### Usage
+
+Run the script and follow the interactive menu:
+
+```bash
+netrixcore
+```
+
+**Main Menu Options:**
+1. **Create Tunnel** - Create Server or Client tunnel with interactive prompts
+2. **Status** - View all tunnels and their status (running/stopped)
+3. **Stop** - Stop running tunnels
+4. **Restart** - Restart tunnels
+5. **Delete** - Remove tunnels and their configuration files
+6. **Netrix Core Management** - Install/Update/Delete Netrix core binary
+7. **System Optimizer** - Optimize Linux kernel parameters for high traffic
+# Reboot for full effect
+```
+
+---
+
+## Manual Configuration
+
+If you prefer manual configuration, you can create YAML files and run Netrix directly.
+
 ## Server Configuration
 
 ### Server Flags
@@ -757,11 +809,61 @@ Netrix از معماری چند لایه استفاده می‌کند:
 - امکان عبور UDP از طریق tunnel
 - مدیریت چندین UDP flow
 
+---
+
+## 🚀 شروع سریع با اسکریپت مدیریت
+
+برای مدیریت آسان‌تر تانل‌ها، یک اسکریپت مدیریتی پایتون ارائه می‌دهیم که به صورت خودکار تنظیمات، نصب و بهینه‌سازی سیستم را انجام می‌دهد.
+
+### نصب
+
+```bash
+# دانلود اسکریپت
+wget https://raw.githubusercontent.com/YOUR_USERNAME/netrix/main/netrix.py -O /usr/local/bin/netrixcore
+```
+
+**نکته:** اسکریپت به عنوان دستور `netrixcore` نصب می‌شود و می‌توانید از هر جایی در سیستم آن را اجرا کنید.
+
+
+
+### امکانات
+
+- ✅ **منوی تعاملی**: رابط کاربری آسان برای مدیریت تانل‌ها
+- ✅ **تنظیمات خودکار**: ساخت خودکار فایل‌های کانفیگ YAML
+- ✅ **مدیریت هسته**: نصب/آپدیت/حذف باینری هسته Netrix
+- ✅ **یکپارچگی با Systemd**: راه‌اندازی خودکار تانل‌ها با systemd
+- ✅ **بهینه‌ساز سیستم**: بهینه‌سازی پارامترهای کرنل لینوکس برای عملکرد بالا
+- ✅ **چند Transport**: پشتیبانی از TCP، KCP، WebSocket و WSS
+- ✅ **مدیریت گواهینامه**: دریافت خودکار گواهینامه Let's Encrypt
+- ✅ **انتخاب پروفایل**: انتخاب از 4 پروفایل عملکردی
+- ✅ **نگاشت پورت**: نگاشت آسان پورت‌های TCP/UDP با پشتیبانی از محدوده
+
+### نحوه استفاده
+
+اسکریپت را اجرا کنید و از منوی تعاملی استفاده کنید:
+
+```bash
+netrixcore
+```
+
+**گزینه‌های منوی اصلی:**
+1. **ساخت تانل** - ساخت تانل سرور یا کلاینت با راهنمای تعاملی
+2. **وضعیت** - مشاهده تمام تانل‌ها و وضعیت آن‌ها (در حال اجرا/متوقف شده)
+3. **توقف** - توقف تانل‌های در حال اجرا
+4. **راه‌اندازی مجدد** - راه‌اندازی مجدد تانل‌ها
+5. **حذف** - حذف تانل‌ها و فایل‌های کانفیگ آن‌ها
+6. **مدیریت هسته Netrix** - نصب/آپدیت/حذف باینری هسته Netrix
+7. **بهینه‌ساز سیستم** - بهینه‌سازی پارامترهای کرنل لینوکس برای ترافیک بالا
+
 </div>
 
 ---
 
 <div dir="rtl">
+
+## تنظیمات دستی
+
+اگر تنظیمات دستی را ترجیح می‌دهید، می‌توانید فایل‌های YAML را خودتان بسازید و Netrix را مستقیماً اجرا کنید.
 
 ## تنظیمات سرور (Server Configuration)
 
