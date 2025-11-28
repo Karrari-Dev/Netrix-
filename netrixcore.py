@@ -80,6 +80,9 @@ def ask_int(prompt, min_=1, max_=65535, default=None):
         except KeyboardInterrupt:
             print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
             raise UserCancelled()
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            print(f"  {FG_RED}⚠️  Invalid input encoding. Please use English characters.{RESET}")
+            continue
         if raw == "" and default is not None:
             return default
         if not raw.isdigit():
@@ -98,6 +101,9 @@ def ask_nonempty(prompt, default=None):
         except KeyboardInterrupt:
             print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
             raise UserCancelled()
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            print(f"  {FG_RED}⚠️  Invalid input encoding. Please use English/ASCII characters.{RESET}")
+            continue
         if raw == "" and default is not None:
             return default
         if raw:
@@ -112,6 +118,9 @@ def ask_yesno(prompt, default=True):
         except KeyboardInterrupt:
             print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
             raise UserCancelled()
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            print(f"  {FG_RED}⚠️  Invalid input encoding. Please use English characters.{RESET}")
+            continue
         if raw == "":
             return default
         if raw in ("y", "yes"):
@@ -906,7 +915,7 @@ def start_configure_menu():
     while True:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}                  {BOLD}Create Tunnel           {RESET}                  {BOLD}{FG_CYAN}║{RESET}")
+        print(f"                                {BOLD}Create Tunnel{RESET}                  ")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -942,9 +951,22 @@ def start_configure_menu():
 def create_server_tunnel():
     """ساخت تانل سرور (Iran)"""
     try:
+        # بررسی نصب بودن هسته
+        if not ensure_netrix_available():
+            clear()
+            print(f"{BOLD}{FG_RED}╔══════════════════════════════════════════════════════════╗{RESET}")
+            print(f"                            {BOLD}Core Not Installed{RESET}                  ")
+            print(f"{BOLD}{FG_RED}╚══════════════════════════════════════════════════════════╝{RESET}")
+            print()
+            c_err("Netrix core is not installed!")
+            print(f"\n  {FG_YELLOW}Please install the core first from:{RESET}")
+            print(f"  {FG_CYAN}Main Menu → Option 6 (Core Management) → Install/Update Core{RESET}\n")
+            pause()
+            return
+        
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}              {BOLD}Create Iran Server Tunnel   {RESET}              {BOLD}{FG_CYAN}║{RESET}")
+        print(f"                          {BOLD}Create Iran Server Tunnel{RESET}             ")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1113,7 +1135,6 @@ def create_server_tunnel():
                 "udp_data_slice_size": 0
             }
         
-        # Maps (TCP/UDP) - Port Mappings
         maps = []
         print(f"\n  {BOLD}{FG_CYAN}Port Mappings:{RESET} {FG_YELLOW}(optional - leave empty to skip){RESET}")
         print(f"  {FG_WHITE}Format:{RESET} Multiple ports with comma {FG_GREEN}(2066,9988,6665){RESET} or Range {FG_GREEN}(2066-2070){RESET}")
@@ -1155,6 +1176,7 @@ def create_server_tunnel():
             except ValueError as e:
                 c_err(f"  ⚠️  Invalid UDP ports: {FG_RED}{e}{RESET}")
         
+        # ساخت کانفیگ
         cfg = {
             "tport": tport,
             "listen": f"0.0.0.0:{tport}",
@@ -1163,9 +1185,9 @@ def create_server_tunnel():
             "profile": profile,
             "maps": maps,
             "verbose": verbose,
-            "max_sessions": max_sessions,
-            "heartbeat": heartbeat,
-            "buffer_pool_config": buffer_pool_config
+            "max_sessions": max_sessions,  
+            "heartbeat": heartbeat, 
+            "buffer_pool_config": buffer_pool_config  
         }
         
         if cert_file and key_file:
@@ -1192,9 +1214,22 @@ def create_server_tunnel():
 def create_client_tunnel():
     """ساخت تانل کلاینت (Kharej)"""
     try:
+        # بررسی نصب بودن هسته
+        if not ensure_netrix_available():
+            clear()
+            print(f"{BOLD}{FG_RED}╔══════════════════════════════════════════════════════════╗{RESET}")
+            print(f"                            {BOLD}Core Not Installed{RESET}                  ")
+            print(f"{BOLD}{FG_RED}╚══════════════════════════════════════════════════════════╝{RESET}")
+            print()
+            c_err("Netrix core is not installed!")
+            print(f"\n  {FG_YELLOW}Please install the core first from:{RESET}")
+            print(f"  {FG_CYAN}Main Menu → Option 6 (Core Management) → Install/Update Core{RESET}\n")
+            pause()
+            return
+        
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}             {BOLD}Create Kharej Client Tunnel  {RESET}             {BOLD}{FG_CYAN}║{RESET}")
+        print(f"                         {BOLD}Create Kharej Client Tunnel{RESET}             ")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1339,7 +1374,7 @@ def status_menu():
     while True:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}                      {BOLD}Status             {RESET}                      {BOLD}{FG_CYAN}║{RESET}")
+        print(f"                                     {BOLD}Status{RESET}                      ")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1391,7 +1426,7 @@ def view_tunnel_details(config_path: Path, tunnel: Dict[str,Any]):
     while True:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}              {BOLD}Tunnel Details             {RESET}              {BOLD}{FG_CYAN}║{RESET}")
+        print(f"                                {BOLD}Tunnel Details{RESET}              ")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1443,7 +1478,7 @@ def view_service_logs(config_path: Path):
     service_name = f"netrix-{config_path.stem}"
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{FG_CYAN}║{RESET}               {BOLD}Service Logs              {RESET}                {BOLD}{FG_CYAN}║{RESET}")
+    print(f"                                  {BOLD}Service Logs{RESET}                ")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     print(f"  {BOLD}Service:{RESET} {service_name}")
@@ -1472,7 +1507,7 @@ def view_live_logs(config_path: Path):
     service_name = f"netrix-{config_path.stem}"
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{FG_CYAN}║{RESET}                {BOLD}Live Logs                {RESET}                 {BOLD}{FG_CYAN}║{RESET}")
+    print(f"                                  {BOLD}Live Logs{RESET}                 ")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     print(f"  {BOLD}Service:{RESET} {service_name}")
@@ -1494,7 +1529,7 @@ def check_tunnel_health(config_path: Path):
     
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{FG_CYAN}║{RESET}                {BOLD}Health Check              {RESET}                 {BOLD}{FG_CYAN}║{RESET}")
+    print(f"                                {BOLD}Health Check{RESET}                 ")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     
@@ -1572,7 +1607,7 @@ def reload_tunnel_config(config_path: Path):
     
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{FG_CYAN}║{RESET}              {BOLD}Config Hot Reload          {RESET}              {BOLD}{FG_CYAN}║{RESET}")
+    print(f"                               {BOLD}Config Hot Reload{RESET}              ")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     
@@ -1630,7 +1665,7 @@ def stop_tunnel_menu():
     """منوی توقف تانل"""
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{FG_CYAN}║{RESET}                 {BOLD}Stop Tunnel             {RESET}                 {BOLD}{FG_CYAN}║{RESET}")
+    print(f"                                  {BOLD}Stop Tunnel{RESET}                 ")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     
@@ -1685,7 +1720,7 @@ def restart_tunnel_menu():
     """منوی ریستارت تانل"""
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{FG_CYAN}║{RESET}                {BOLD}Restart Tunnel           {RESET}                {BOLD}{FG_CYAN}║{RESET}")
+    print(f"                                 {BOLD}Restart Tunnel{RESET}                ")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     
@@ -1749,7 +1784,7 @@ def delete_tunnel_menu():
     """منوی حذف تانل"""
     clear()
     print(f"{BOLD}{FG_RED}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{FG_RED}║{RESET}                {BOLD}Delete Tunnel            {RESET}                 {BOLD}{FG_RED}║{RESET}")
+    print(f"                                 {BOLD}Delete Tunnel{RESET}                 ")
     print(f"{BOLD}{FG_RED}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     
@@ -1821,7 +1856,7 @@ def core_management_menu():
     while True:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}            {BOLD}Netrix Core Management{RESET}            {BOLD}{FG_CYAN}║{RESET}")
+        print(f"                           {BOLD}Netrix Core Management{RESET}            ")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1871,7 +1906,7 @@ def install_netrix_core():
     try:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}              {BOLD}Install Netrix Core{RESET}              {BOLD}{FG_CYAN}║{RESET}")
+        print(f"                              {BOLD}Install Netrix Core{RESET}              ")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1895,7 +1930,6 @@ def install_netrix_core():
         go_arch = arch_map.get(arch, "amd64")
         print(f"  {BOLD}Architecture:{RESET} {FG_GREEN}{arch} {FG_WHITE}({go_arch}){RESET}")
         
-        # انتخاب لینک بر اساس معماری
         download_url = NETRIX_RELEASE_URLS.get(go_arch)
         if not download_url:
             c_err(f"  ❌ Unsupported architecture: {go_arch}")
@@ -2019,7 +2053,7 @@ def update_netrix_core():
     try:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}              {BOLD}Update Netrix Core{RESET}               {BOLD}{FG_CYAN}║{RESET}")
+        print(f"                            {BOLD}Update Netrix Core{RESET}               ")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -2103,7 +2137,7 @@ def delete_netrix_core():
     try:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}              {BOLD}Delete Netrix Core          {RESET}               {BOLD}{FG_CYAN}║{RESET}")
+        print(f"                               {BOLD}Delete Netrix Core{RESET}              ")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -2171,7 +2205,7 @@ def system_optimizer_menu():
     try:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}              {BOLD}System Optimizer{RESET}               {BOLD}{FG_CYAN}║{RESET}")
+        print(f"                                   {BOLD}System Optimizer{RESET}              ")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -2486,6 +2520,14 @@ def main_menu():
         print(f"{BOLD}{FG_CYAN}    ╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝{RESET}")
         print(f"{BOLD}{FG_CYAN}{'=' * 60}{RESET}")
         print(f"{FG_WHITE}    Tunnel Management Script{RESET}")
+        
+        core_installed = os.path.exists(NETRIX_BINARY)
+        if core_installed:
+            print(f"    {FG_GREEN}Core Status: ✅ Installed{RESET}")
+        else:
+            print(f"    {FG_RED}Core Status: ❌ Not Installed{RESET}")
+        
+        print(f"    {FG_CYAN}Support: {FG_WHITE}@Karrari_Dev{RESET}")
         print()
         print(f"  {BOLD}{FG_GREEN}1){RESET} Create Tunnel")
         print(f"  {BOLD}{FG_BLUE}2){RESET} Status")
