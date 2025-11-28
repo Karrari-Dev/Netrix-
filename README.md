@@ -84,7 +84,7 @@ For easier tunnel management, we provide a Python management script that handles
 **Important:** To use Netrix, you need to purchase a license first.
 
 **Purchase License:**
-- 🤖 **Telegram Bot**: [@mnxcore_bot](https://t.me/mnycore_bot)
+- 🤖 **Telegram Bot**: [@mnxcore_bot](https://t.me/mnxcore_bot)
 - 👤 **Developer Contact**: [@g0dline](https://t.me/g0dline)
 
 After purchasing the license, you will receive a license key that you need to activate before using Netrix.
