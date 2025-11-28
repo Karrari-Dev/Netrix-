@@ -1114,6 +1114,9 @@ def create_server_tunnel():
                 "udp_data_slice_size": 0
             }
         
+        # Maps will be added at the end of YAML file
+        maps = []
+        
         cfg = {
             "tport": tport,
             "listen": f"0.0.0.0:{tport}",
