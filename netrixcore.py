@@ -915,7 +915,7 @@ def start_configure_menu():
     while True:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"                                {BOLD}Create Tunnel{RESET}                  ")
+        print(f"{BOLD}{FG_CYAN}║{RESET}                      {BOLD}Create Tunnel{RESET}                       {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -966,7 +966,7 @@ def create_server_tunnel():
         
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"                          {BOLD}Create Iran Server Tunnel{RESET}             ")
+        print(f"{BOLD}{FG_CYAN}║{RESET}                {BOLD}Create Iran Server Tunnel{RESET}                 {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1229,7 +1229,7 @@ def create_client_tunnel():
         
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"                         {BOLD}Create Kharej Client Tunnel{RESET}             ")
+        print(f"{BOLD}{FG_CYAN}║{RESET}               {BOLD}Create Kharej Client Tunnel{RESET}                {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1374,7 +1374,7 @@ def status_menu():
     while True:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"                                     {BOLD}Status{RESET}                      ")
+        print(f"{BOLD}{FG_CYAN}║{RESET}                          {BOLD}Status{RESET}                          {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1426,7 +1426,7 @@ def view_tunnel_details(config_path: Path, tunnel: Dict[str,Any]):
     while True:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"                                {BOLD}Tunnel Details{RESET}              ")
+        print(f"{BOLD}{FG_CYAN}║{RESET}                    {BOLD}Tunnel Details{RESET}                     {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1478,7 +1478,7 @@ def view_service_logs(config_path: Path):
     service_name = f"netrix-{config_path.stem}"
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"                                  {BOLD}Service Logs{RESET}                ")
+    print(f"{BOLD}{FG_CYAN}║{RESET}                     {BOLD}Service Logs{RESET}                      {BOLD}{FG_CYAN}║{RESET}")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     print(f"  {BOLD}Service:{RESET} {service_name}")
@@ -1507,7 +1507,7 @@ def view_live_logs(config_path: Path):
     service_name = f"netrix-{config_path.stem}"
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"                                  {BOLD}Live Logs{RESET}                 ")
+    print(f"{BOLD}{FG_CYAN}║{RESET}                        {BOLD}Live Logs{RESET}                         {BOLD}{FG_CYAN}║{RESET}")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     print(f"  {BOLD}Service:{RESET} {service_name}")
@@ -1529,7 +1529,7 @@ def check_tunnel_health(config_path: Path):
     
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"                                {BOLD}Health Check{RESET}                 ")
+    print(f"{BOLD}{FG_CYAN}║{RESET}                      {BOLD}Health Check{RESET}                      {BOLD}{FG_CYAN}║{RESET}")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     
@@ -1607,7 +1607,7 @@ def reload_tunnel_config(config_path: Path):
     
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"                               {BOLD}Config Hot Reload{RESET}              ")
+    print(f"{BOLD}{FG_CYAN}║{RESET}                    {BOLD}Config Hot Reload{RESET}                     {BOLD}{FG_CYAN}║{RESET}")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     
@@ -1665,7 +1665,7 @@ def stop_tunnel_menu():
     """منوی توقف تانل"""
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"                                  {BOLD}Stop Tunnel{RESET}                 ")
+    print(f"{BOLD}{FG_CYAN}║{RESET}                       {BOLD}Stop Tunnel{RESET}                        {BOLD}{FG_CYAN}║{RESET}")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     
@@ -1720,7 +1720,7 @@ def restart_tunnel_menu():
     """منوی ریستارت تانل"""
     clear()
     print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"                                 {BOLD}Restart Tunnel{RESET}                ")
+    print(f"{BOLD}{FG_CYAN}║{RESET}                     {BOLD}Restart Tunnel{RESET}                     {BOLD}{FG_CYAN}║{RESET}")
     print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     
@@ -1784,7 +1784,7 @@ def delete_tunnel_menu():
     """منوی حذف تانل"""
     clear()
     print(f"{BOLD}{FG_RED}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"                                 {BOLD}Delete Tunnel{RESET}                 ")
+    print(f"{BOLD}{FG_RED}║{RESET}                      {BOLD}Delete Tunnel{RESET}                       {BOLD}{FG_RED}║{RESET}")
     print(f"{BOLD}{FG_RED}╚══════════════════════════════════════════════════════════╝{RESET}")
     print()
     
@@ -1856,7 +1856,7 @@ def core_management_menu():
     while True:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"                           {BOLD}Netrix Core Management{RESET}            ")
+        print(f"{BOLD}{FG_CYAN}║{RESET}                 {BOLD}Netrix Core Management{RESET}                {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -1906,7 +1906,7 @@ def install_netrix_core():
     try:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"                              {BOLD}Install Netrix Core{RESET}              ")
+        print(f"{BOLD}{FG_CYAN}║{RESET}                   {BOLD}Install Netrix Core{RESET}                    {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -2053,7 +2053,7 @@ def update_netrix_core():
     try:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"                            {BOLD}Update Netrix Core{RESET}               ")
+        print(f"{BOLD}{FG_CYAN}║{RESET}                   {BOLD}Update Netrix Core{RESET}                    {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -2137,7 +2137,7 @@ def delete_netrix_core():
     try:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"                               {BOLD}Delete Netrix Core{RESET}              ")
+        print(f"{BOLD}{FG_CYAN}║{RESET}                   {BOLD}Delete Netrix Core{RESET}                    {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
@@ -2205,7 +2205,7 @@ def system_optimizer_menu():
     try:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"                                   {BOLD}System Optimizer{RESET}              ")
+        print(f"{BOLD}{FG_CYAN}║{RESET}                     {BOLD}System Optimizer{RESET}                     {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
