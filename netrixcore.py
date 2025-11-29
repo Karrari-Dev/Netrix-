@@ -2527,7 +2527,7 @@ def main_menu():
         else:
             print(f"    {FG_RED}Core Status: ❌ Not Installed{RESET}")
         
-        print(f"    {FG_CYAN}Support: {FG_WHITE}@Karrari_Dev{RESET}")
+        print(f"    {FG_CYAN}Support: {FG_WHITE}@g0dline{RESET}")
         print()
         print(f"  {BOLD}{FG_GREEN}1){RESET} Create Tunnel")
         print(f"  {BOLD}{FG_BLUE}2){RESET} Status")
@@ -2572,3 +2572,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
