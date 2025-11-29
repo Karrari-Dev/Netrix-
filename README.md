@@ -127,10 +127,10 @@ netrixcore
 ### 📞 Support & Contact
 
 **Purchase License:**
-- 🤖 **Telegram Bot**: [@YOUR_BOT_USERNAME](https://t.me/YOUR_BOT_USERNAME)
+- 🤖 **Telegram Bot**: [@mnxcore_bote](https://t.me/mnxcore_bot)
 
 **Developer:**
-- 👤 **Telegram**: [@YOUR_TELEGRAM_USERNAME](https://t.me/YOUR_TELEGRAM_USERNAME)
+- 👤 **Telegram**: [@g0dline](https://t.me/g0dline)
 
 
 ---
@@ -877,10 +877,10 @@ netrixcore
 ### 📞 پشتیبانی و تماس
 
 **خرید لایسنس:**
-- 🤖 **ربات تلگرام**: [@YOUR_BOT_USERNAME](https://t.me/YOUR_BOT_USERNAME)
+- 🤖 **ربات تلگرام**: [@mnxcore_bot]https://t.me/mnxcore_bot)
 
 **سازنده:**
-- 👤 **تلگرام**: [@YOUR_TELEGRAM_USERNAME](https://t.me/YOUR_TELEGRAM_USERNAME)
+- 👤 **تلگرام**: [@g0dline](https://t.me/g0dline)
 
 
 </div>
