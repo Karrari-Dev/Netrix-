@@ -169,18 +169,18 @@ def configure_buffer_pools() -> dict:
     
     print(f"\n  {BOLD}{FG_YELLOW}Buffer Pool Configuration:{RESET}")
     print(f"  {FG_WHITE}Note: Press Enter or enter 0 to use default value (will be written as 0 in file){RESET}")
-    print(f"  {FG_WHITE}Default values: buffer_pool=128KB, large_buffer=128KB, udp_frame=64KB+256, udp_slice=1500{RESET}")
-    print(f"  {FG_WHITE}You can edit these values later in the YAML file{RESET}\n")
+    print(f"  {FG_WHITE}Default values: buffer_pool=128KB (fixed), large_buffer=128KB (fixed), udp_frame=64KB+256, udp_slice=1500{RESET}")
+    print(f"  {FG_WHITE}Buffer pool sizes are fixed at 128KB for optimal performance{RESET}\n")
     
     buffer_pool_size = ask_int(
-        f"  {BOLD}Buffer Pool Size:{RESET} {FG_WHITE}(bytes, default: 131072 = 128KB, 0 = use default){RESET}",
+        f"  {BOLD}Buffer Pool Size:{RESET} {FG_WHITE}(bytes, default: 65536 = 64KB, 0 = use default){RESET}",
         min_=0,
         default=0
     )
     config["buffer_pool_size"] = buffer_pool_size
     
     large_buffer_pool_size = ask_int(
-        f"  {BOLD}Large Buffer Pool Size:{RESET} {FG_WHITE}(bytes, default: 131072 = 128KB, 0 = use default){RESET}",
+        f"  {BOLD}Large Buffer Pool Size:{RESET} {FG_WHITE}(bytes, default: 262144 = 256KB, 0 = use default){RESET}",
         min_=0,
         default=0
     )
@@ -216,27 +216,27 @@ def get_default_smux_config(profile: str = "balanced") -> dict:
     profiles = {
         "balanced": {
             "keepalive": 8,
-            "max_recv": 8388608,
-            "max_stream": 8388608,
-            "frame_size": 32768
+            "max_recv": 8388608,      # 8MB (بهینه برای throughput)
+            "max_stream": 8388608,    # 8MB (بهینه برای throughput)
+            "frame_size": 32768       # 32KB (استاندارد)
         },
         "aggressive": {
             "keepalive": 5,
-            "max_recv": 16777216,
-            "max_stream": 16777216,
-            "frame_size": 32768
+            "max_recv": 16777216,     # 16MB (مثل Hysteria - برای سرعت بالا)
+            "max_stream": 16777216,   # 16MB (مثل Hysteria - برای سرعت بالا)
+            "frame_size": 32768       # 32KB (استاندارد)
         },
         "latency": {
             "keepalive": 3,
-            "max_recv": 4194304,
-            "max_stream": 4194304,
-            "frame_size": 32768
+            "max_recv": 4194304,      # 4MB (متعادل برای latency)
+            "max_stream": 4194304,    # 4MB (متعادل برای latency)
+            "frame_size": 32768       # 32KB (بهینه برای performance)
         },
         "cpu-efficient": {
             "keepalive": 10,
-            "max_recv": 8388608,
-            "max_stream": 8388608,
-            "frame_size": 32768
+            "max_recv": 8388608,      # 8MB
+            "max_stream": 8388608,    # 8MB
+            "frame_size": 32768       # 32KB
         }
     }
     return profiles.get(profile.lower(), profiles["balanced"])
@@ -249,35 +249,35 @@ def get_default_kcp_config(profile: str = "balanced") -> dict:
             "interval": 10,
             "resend": 2,
             "nc": 1,
-            "sndwnd": 768,
-            "rcvwnd": 768,
+            "sndwnd": 768,       # بهینه برای throughput (مثل main/netrix.go)
+            "rcvwnd": 768,       # بهینه برای throughput (مثل main/netrix.go)
             "mtu": 1400
         },
         "aggressive": {
             "nodelay": 1,
-            "interval": 8,
+            "interval": 8,       # کاهش برای بهتر شدن latency و jitter
             "resend": 2,
             "nc": 1,
-            "sndwnd": 1024,
-            "rcvwnd": 1024,
+            "sndwnd": 1024,      # بهینه برای throughput maximum
+            "rcvwnd": 1024,      # بهینه برای throughput maximum
             "mtu": 1400
         },
         "latency": {
             "nodelay": 1,
-            "interval": 8,
+            "interval": 8,       # کم برای low latency
             "resend": 2,
             "nc": 1,
-            "sndwnd": 768,
-            "rcvwnd": 768,
+            "sndwnd": 768,       # بهینه برای throughput
+            "rcvwnd": 768,       # بهینه برای throughput
             "mtu": 1350
         },
         "cpu-efficient": {
             "nodelay": 0,
-            "interval": 20,
+            "interval": 40,
             "resend": 2,
-            "nc": 1,
-            "sndwnd": 512,
-            "rcvwnd": 512,
+            "nc": 0,             # Disable NC برای CPU کم
+            "sndwnd": 512,       # متعادل
+            "rcvwnd": 512,       # متعادل
             "mtu": 1400
         }
     }
@@ -287,13 +287,13 @@ def get_default_advanced_config(transport: str) -> dict:
     """تنظیمات پیش‌فرض Advanced بر اساس transport - تمام فلگ‌های قابل تنظیم"""
     base_config = {
         "tcp_nodelay": True,
-        "tcp_keepalive": 15,
-        "tcp_read_buffer": 4194304,  # 4MB
-        "tcp_write_buffer": 4194304,  # 4MB
-        "cleanup_interval": 3,
-        "session_timeout": 30,
-        "connection_timeout": 60,
-        "stream_timeout": 120,
+        "tcp_keepalive": 60,          # افزایش از 15s به 60s برای جلوگیری از قطع شدن SSH
+        "tcp_read_buffer": 4194304,   # 4MB (متعادل - مناسب برای download بالا)
+        "tcp_write_buffer": 4194304,  # 4MB (متعادل - مناسب برای سرورهای ضعیف و قوی)
+        "cleanup_interval": 30,       # افزایش از 3s به 30s - cleanup خیلی زیاد باعث overhead میشه
+        "session_timeout": 300,       # افزایش از 30s به 5 دقیقه برای جلوگیری از cleanup زودهنگام
+        "connection_timeout": 120,    # افزایش از 1 دقیقه به 2 دقیقه
+        "stream_timeout": 300,        # افزایش از 2 دقیقه به 5 دقیقه
         "max_connections": 2000,
         "max_udp_flows": 1000,
         "udp_flow_timeout": 300,
@@ -303,8 +303,8 @@ def get_default_advanced_config(transport: str) -> dict:
 
     if transport in ("kcpmux", "kcp"):
         base_config.update({
-            "udp_read_buffer": 4194304,  # 4MB
-            "udp_write_buffer": 4194304   # 4MB
+            "udp_read_buffer": 4194304,   # 4MB (متعادل - مناسب برای ترافیک بالا)
+            "udp_write_buffer": 4194304   # 4MB (متعادل - مناسب برای ترافیک بالا)
         })
     elif transport in ("wsmux", "wssmux"):
         base_config.update({
@@ -515,6 +515,10 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
     
     yaml_data["verbose"] = cfg.get("verbose", False)
     
+    # Health check port (default: 19080)
+    if "health_port" in cfg:
+        yaml_data["health_port"] = cfg['health_port']
+    
     if cfg.get("cert_file") and cfg.get("key_file"):
         yaml_data["cert_file"] = cfg["cert_file"]
         yaml_data["key_file"] = cfg["key_file"]
@@ -613,6 +617,8 @@ def create_client_config_file(cfg: dict) -> Path:
             yaml_data["advanced"][key] = value
     
     yaml_data["verbose"] = cfg.get("verbose", False)
+    
+
     
     if "heartbeat" in cfg:
         yaml_data["heartbeat"] = cfg['heartbeat']
@@ -800,7 +806,7 @@ def stop_tunnel(config_path: Path) -> bool:
             ["systemctl", "stop", service_name],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=15  # افزایش از 10s به 15s برای graceful shutdown
         )
         return result.returncode == 0
     except subprocess.TimeoutExpired:
@@ -810,6 +816,51 @@ def stop_tunnel(config_path: Path) -> bool:
             return True
         except:
             return False
+    except Exception:
+        return False
+
+def restart_tunnel(config_path: Path) -> bool:
+    """ریستارت تانل از طریق systemd service"""
+    service_name = f"netrix-{config_path.stem}"
+    try:
+        result = subprocess.run(
+            ["systemctl", "restart", service_name],
+            capture_output=True,
+            text=True,
+            timeout=30  # 15s stop + 15s start
+        )
+        if result.returncode == 0:
+            return True
+        else:
+            # اگر restart fail شد، چک کن ببین service فعاله یا نه
+            try:
+                check_result = subprocess.run(
+                    ["systemctl", "is-active", service_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=3
+                )
+                if check_result.returncode == 0 and check_result.stdout.strip() == "active":
+                    return True
+            except:
+                pass
+            return False
+    except subprocess.TimeoutExpired:
+        c_warn(f"  ⚠️  Restart timeout - checking service status...")
+        # چک کن ببین service واقعاً restart شده یا نه
+        try:
+            check_result = subprocess.run(
+                ["systemctl", "is-active", service_name],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if check_result.returncode == 0 and check_result.stdout.strip() == "active":
+                c_warn("  ⚠️  Service is running (restart completed despite timeout)")
+                return True
+        except:
+            pass
+        return False
     except Exception:
         return False
 
@@ -1019,6 +1070,48 @@ def create_server_tunnel():
         profiles = {1: "balanced", 2: "aggressive", 3: "latency", 4: "cpu-efficient"}
         profile = profiles[profile_choice]
         
+        # Port Mappings - بعد از profile
+        maps = []
+        print(f"\n  {BOLD}{FG_CYAN}Port Mappings:{RESET} {FG_WHITE}(e.g., 2066,9988 or 2066-2070 | Press Enter to skip){RESET}")
+        
+        # TCP Ports
+        try:
+            tcp_input = input(f"  {BOLD}TCP Ports:{RESET} ").strip()
+        except KeyboardInterrupt:
+            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+            raise UserCancelled()
+        
+        if tcp_input:
+            try:
+                tcp_ports = parse_ports(tcp_input)
+                for port in tcp_ports:
+                    bind_addr = f"0.0.0.0:{port}"
+                    target_addr = f"127.0.0.1:{port}"
+                    maps.append({"type": "tcp", "bind": bind_addr, "target": target_addr})
+                if tcp_ports:
+                    c_ok(f"  ✅ Added {FG_GREEN}{len(tcp_ports)}{RESET} TCP port(s)")
+            except ValueError as e:
+                c_err(f"  ⚠️  Invalid: {e}")
+        
+        # UDP Ports
+        try:
+            udp_input = input(f"  {BOLD}UDP Ports:{RESET} ").strip()
+        except KeyboardInterrupt:
+            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+            raise UserCancelled()
+        
+        if udp_input:
+            try:
+                udp_ports = parse_ports(udp_input)
+                for port in udp_ports:
+                    bind_addr = f"0.0.0.0:{port}"
+                    target_addr = f"127.0.0.1:{port}"
+                    maps.append({"type": "udp", "bind": bind_addr, "target": target_addr})
+                if udp_ports:
+                    c_ok(f"  ✅ Added {FG_GREEN}{len(udp_ports)}{RESET} UDP port(s)")
+            except ValueError as e:
+                c_err(f"  ⚠️  Invalid: {e}")
+        
         cert_file = None
         key_file = None
         if transport == "wssmux":
@@ -1153,47 +1246,6 @@ def create_server_tunnel():
                 "udp_frame_pool_size": 0,
                 "udp_data_slice_size": 0
             }
-        
-        maps = []
-        print(f"\n  {BOLD}{FG_CYAN}Port Mappings:{RESET} {FG_YELLOW}(optional - leave empty to skip){RESET}")
-        print(f"  {FG_WHITE}Format:{RESET} Multiple ports with comma {FG_GREEN}(2066,9988,6665){RESET} or Range {FG_GREEN}(2066-2070){RESET}")
-        print(f"  {FG_WHITE}Note:{RESET} Bind and Target ports will be the same {FG_CYAN}(0.0.0.0:2066 -> 127.0.0.1:2066){RESET}")
-        
-        # TCP Ports
-        try:
-            tcp_input = input(f"\n  {BOLD}{FG_GREEN}TCP Ports:{RESET} {FG_WHITE}(e.g., 2066,9988 or 2066-2070){RESET} ").strip()
-        except KeyboardInterrupt:
-            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
-            raise UserCancelled()
-        if tcp_input:
-            try:
-                tcp_ports = parse_ports(tcp_input)
-                for port in tcp_ports:
-                    bind_addr = f"0.0.0.0:{port}"
-                    target_addr = f"127.0.0.1:{port}"
-                    maps.append({"type": "tcp", "bind": bind_addr, "target": target_addr})
-                if tcp_ports:
-                    c_ok(f"  ✅ Added {FG_GREEN}{len(tcp_ports)}{RESET} TCP mapping(s)")
-            except ValueError as e:
-                c_err(f"  ⚠️  Invalid TCP ports: {FG_RED}{e}{RESET}")
-        
-        # UDP Ports
-        try:
-            udp_input = input(f"  {BOLD}{FG_GREEN}UDP Ports:{RESET} {FG_WHITE}(e.g., 2066,9988 or 2066-2070){RESET} ").strip()
-        except KeyboardInterrupt:
-            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
-            raise UserCancelled()
-        if udp_input:
-            try:
-                udp_ports = parse_ports(udp_input)
-                for port in udp_ports:
-                    bind_addr = f"0.0.0.0:{port}"
-                    target_addr = f"127.0.0.1:{port}"
-                    maps.append({"type": "udp", "bind": bind_addr, "target": target_addr})
-                if udp_ports:
-                    c_ok(f"  ✅ Added {FG_GREEN}{len(udp_ports)}{RESET} UDP mapping(s)")
-            except ValueError as e:
-                c_err(f"  ⚠️  Invalid UDP ports: {FG_RED}{e}{RESET}")
         
         # ساخت کانفیگ
         cfg = {
@@ -1562,8 +1614,8 @@ def check_tunnel_health(config_path: Path):
     print()
     
     health_urls = [
-        ("http://localhost:8080/health", "Simple Health Check"),
-        ("http://localhost:8080/health/detailed", "Detailed Health Check")
+        ("http://localhost:19080/health", "Simple Health Check"),
+        ("http://localhost:19080/health/detailed", "Detailed Health Check")
     ]
     
     for url, name in health_urls:
@@ -1612,7 +1664,7 @@ def check_tunnel_health(config_path: Path):
                 print(f"    {FG_YELLOW}Service is unavailable (may be shutting down or no sessions){RESET}")
         except urllib.error.URLError as e:
             print(f"    {FG_RED}❌ Connection Error: {e.reason}{RESET}")
-            print(f"    {FG_YELLOW}⚠️  Health check server may not be running on port 8080{RESET}")
+            print(f"    {FG_YELLOW}⚠️  Health check server may not be running on port 19080{RESET}")
         except Exception as e:
             print(f"    {FG_RED}❌ Error: {e}{RESET}")
         print()
@@ -1769,41 +1821,13 @@ def restart_tunnel_menu():
             it = items[idx]
             config_path = it.get("config_path")
             
-            service_name = f"netrix-{config_path.stem}"
             print(f"\n  {FG_CYAN}Restarting tunnel...{RESET}", end='', flush=True)
-            try:
-                result = subprocess.run(
-                    ["systemctl", "restart", service_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=45  # افزایش از 15s به 45s
-                )
-                if result.returncode == 0:
-                    print(f" {FG_GREEN}✅{RESET}")
-                    c_ok(f"  ✅ Tunnel restarted successfully.")
-                else:
-                    print(f" {FG_RED}❌{RESET}")
-                    c_err(f"  ❌ Failed to restart tunnel: {FG_RED}{result.stderr}{RESET}")
-            except subprocess.TimeoutExpired:
-                print(f" {FG_YELLOW}⚠️{RESET}")
-                c_warn(f"  ⚠️  Restart command timed out - checking service status...")
-                # چک کن ببین service واقعاً restart شده یا نه
-                try:
-                    check_result = subprocess.run(
-                        ["systemctl", "is-active", service_name],
-                        capture_output=True,
-                        text=True,
-                        timeout=3
-                    )
-                    if check_result.returncode == 0 and check_result.stdout.strip() == "active":
-                        c_ok(f"  ✅ Service is running (restart completed despite timeout)")
-                    else:
-                        c_err(f"  ❌ Service is not running - restart failed")
-                except:
-                    c_err(f"  ❌ Could not verify service status")
-            except Exception as e:
+            if restart_tunnel(config_path):
+                print(f" {FG_GREEN}✅{RESET}")
+                c_ok(f"  ✅ Tunnel restarted successfully.")
+            else:
                 print(f" {FG_RED}❌{RESET}")
-                c_err(f"  ❌ Failed to restart tunnel: {FG_RED}{e}{RESET}")
+                c_err(f"  ❌ Failed to restart tunnel.")
         else:
             c_err("  ❌ Invalid selection.")
     except ValueError:
