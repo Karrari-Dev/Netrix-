@@ -1,4 +1,5 @@
 # Netrix - Advanced Reverse Tunneling Solution
+# نتریکس – راهکار پیشرفتهٔ تونل‌سازی معکوس (Reverse Tunneling)
 
 [![Go Version](https://img.shields.io/badge/Go-1.20+-00ADD8?style=flat&logo=go)](https://golang.org/)
 
