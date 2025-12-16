@@ -2,7 +2,7 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.20+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-Commercial-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-Stable-green.svg)](https://github.com/yourusername/netrix/releases)
+[![Release](https://img.shields.io/badge/Release-Stable-green.svg)](https://github.com/karari-dev/netrix/releases)
 
 ---
 
