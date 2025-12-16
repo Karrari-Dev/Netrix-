@@ -16,8 +16,8 @@ except ImportError:
 ROOT_DIR = Path("/root")
 NETRIX_BINARY = "/usr/local/bin/netrix"
 NETRIX_RELEASE_URLS = {
-    "amd64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v1.0.0/netrix-amd64.tar.gz",
-    "arm64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v1.0.0/netrix-arm64.tar.gz"
+    "amd64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.0/netrix-amd64.tar.gz",
+    "arm64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.0/netrix-arm64.tar.gz"
 }
 
 FG_BLACK = "\033[30m"
@@ -215,80 +215,80 @@ def get_config_path(tport: int) -> Path:
     return ROOT_DIR / f"server{tport}.yaml"
 
 def get_default_smux_config(profile: str = "balanced") -> dict:
-    """تنظیمات پیش‌فرض SMUX بر اساس profile"""
+    """تنظیمات پیش‌فرض SMUX بر اساس profile - همگام با netrix.go"""
     profiles = {
         "balanced": {
-            "keepalive": 20,        
+            "keepalive": 20,       
             "max_recv": 4194304,  
-            "max_stream": 2097152,  
-            "frame_size": 32768,  
-            "version": 2,
-            "mux_con": 10           
-        },
-        "aggressive": {
-            "keepalive": 20,      
-            "max_recv": 4194304,   
             "max_stream": 2097152,  
             "frame_size": 32768,    
             "version": 2,
-            "mux_con": 10         
+            "mux_con": 8         
+        },
+        "aggressive": {
+            "keepalive": 30,       
+            "max_recv": 8388608,   
+            "max_stream": 4194304, 
+            "frame_size": 65535,   
+            "version": 2,
+            "mux_con": 16         
         },
         "latency": {
-            "keepalive": 3,
-            "max_recv": 4194304,   
-            "max_stream": 2097152,  
-            "frame_size": 32768,  
+            "keepalive": 5,      
+            "max_recv": 2097152,   
+            "max_stream": 1048576,
+            "frame_size": 16384,    
             "version": 2,
-            "mux_con": 10
+            "mux_con": 4           
         },
         "cpu-efficient": {
-            "keepalive": 10,
-            "max_recv": 4194304,   
-            "max_stream": 2097152,  
-            "frame_size": 32768,   
+            "keepalive": 60,    
+            "max_recv": 2097152,   
+            "max_stream": 1048576, 
+            "frame_size": 16384,  
             "version": 2,
-            "mux_con": 10
+            "mux_con": 4           
         }
     }
     return profiles.get(profile.lower(), profiles["balanced"])
 
 def get_default_kcp_config(profile: str = "balanced") -> dict:
-    """تنظیمات پیش‌فرض KCP بر اساس profile - بهینه شده برای 16K streams"""
+    """تنظیمات پیش‌فرض KCP بر اساس profile - همگام با netrix.go"""
     profiles = {
         "balanced": {
             "nodelay": 0,      
-            "interval": 15,     
-            "resend": 2,
-            "nc": 0,            
-            "sndwnd": 1024,   
-            "rcvwnd": 1024,    
-            "mtu": 1350        
+            "interval": 20,   
+            "resend": 2,       
+            "nc": 0,         
+            "sndwnd": 512,    
+            "rcvwnd": 512,
+            "mtu": 1350
         },
         "aggressive": {
             "nodelay": 0,      
-            "interval": 15,   
+            "interval": 10,   
             "resend": 2,
-            "nc": 0,           
-            "sndwnd": 1024,   
-            "rcvwnd": 1024,    
-            "mtu": 1350        
+            "nc": 1,          
+            "sndwnd": 2048,   
+            "rcvwnd": 2048,
+            "mtu": 1400      
         },
         "latency": {
-            "nodelay": 1,
-            "interval": 8,
-            "resend": 2,
-            "nc": 1,
-            "sndwnd": 768,
-            "rcvwnd": 768,
-            "mtu": 1350
+            "nodelay": 1,     
+            "interval": 5,  
+            "resend": 1,       
+            "nc": 1,           
+            "sndwnd": 256,   
+            "rcvwnd": 256,
+            "mtu": 1200        
         },
         "cpu-efficient": {
-            "nodelay": 0,
-            "interval": 40,
-            "resend": 2,
-            "nc": 0,
-            "sndwnd": 256,
-            "rcvwnd": 256,
+            "nodelay": 0,      
+            "interval": 50,    
+            "resend": 3,     
+            "nc": 0,            
+            "sndwnd": 128,     
+            "rcvwnd": 128,
             "mtu": 1400
         }
     }
@@ -306,7 +306,7 @@ def get_default_advanced_config(transport: str) -> dict:
         "connection_timeout": 600,   
         "stream_timeout": 21600,      
         "stream_idle_timeout": 600,   
-        "max_connections": 2000,       
+        "max_connections": 0,    
         "max_udp_flows": 5000,         
         "udp_flow_timeout": 600,       
         "verbose": False
@@ -316,13 +316,13 @@ def get_default_advanced_config(transport: str) -> dict:
     if transport in ("kcpmux", "kcp"):
         base_config.update({
             "udp_read_buffer": 4194304,    
-            "udp_write_buffer": 4194304   
+            "udp_write_buffer": 4194304    
         })
     elif transport in ("wsmux", "wssmux"):
         base_config.update({
             "websocket_read_buffer": 524288,   
-            "websocket_write_buffer": 524288,   
-            "websocket_compression": False     
+            "websocket_write_buffer": 524288,  
+            "websocket_compression": False    
         })
     
     return base_config
@@ -491,17 +491,27 @@ def write_yaml_with_comments(file_path: Path, data: dict, comments: dict = None)
                     lines.append(f"{'  ' * indent}{key}:")
                 write_dict(value, indent + 1, full_key)
             elif isinstance(value, list):
-                if comment:
-                    lines.append(f"{'  ' * indent}{key}:  # {comment}")
-                else:
-                    lines.append(f"{'  ' * indent}{key}:")
-                for item in value:
-                    if isinstance(item, dict):
-                        lines.append(f"{'  ' * (indent + 1)}-")
-                        for k, v in item.items():
-                            lines.append(f"{'  ' * (indent + 2)}{k}: {v}")
+                # لیست‌های ساده (int, str) به صورت inline نوشته بشن
+                if value and all(isinstance(item, (int, str, float)) and not isinstance(item, dict) for item in value):
+                    # Inline format: [1, 2, 3]
+                    inline_list = "[" + ", ".join(str(item) for item in value) + "]"
+                    if comment:
+                        lines.append(f"{'  ' * indent}{key}: {inline_list}  # {comment}")
                     else:
-                        lines.append(f"{'  ' * (indent + 1)}- {item}")
+                        lines.append(f"{'  ' * indent}{key}: {inline_list}")
+                else:
+                    # Multi-line format for complex items
+                    if comment:
+                        lines.append(f"{'  ' * indent}{key}:  # {comment}")
+                    else:
+                        lines.append(f"{'  ' * indent}{key}:")
+                    for item in value:
+                        if isinstance(item, dict):
+                            lines.append(f"{'  ' * (indent + 1)}-")
+                            for k, v in item.items():
+                                lines.append(f"{'  ' * (indent + 2)}{k}: {v}")
+                        else:
+                            lines.append(f"{'  ' * (indent + 1)}- {item}")
             else:
                 if comment:
                     lines.append(f"{'  ' * indent}{key}: {value}  # {comment}")
@@ -570,9 +580,24 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
     
     yaml_data["verbose"] = cfg.get("verbose", False)
     
+    # Encryption settings (ChaCha20-Poly1305) - always included
+    yaml_data["encryption"] = {
+        "enabled": cfg.get("encryption_enabled", False),
+        "key": cfg.get("encryption_key", "")  # If empty, PSK will be used
+    }
+    
+    # Stealth settings (anti-DPI) - always included
+    yaml_data["stealth"] = {
+        "padding_enabled": cfg.get("stealth_padding", False),
+        "padding_min": 0,
+        "padding_max": cfg.get("stealth_padding_max", 128),
+        "jitter_enabled": cfg.get("stealth_jitter", False),
+        "jitter_min_ms": 5,
+        "jitter_max_ms": 20
+    }
 
-    if "health_port" in cfg:
-        yaml_data["health_port"] = cfg['health_port']
+    # Health check port - always included
+    yaml_data["health_port"] = cfg.get('health_port', 19080)
     
     if cfg.get("cert_file") and cfg.get("key_file"):
         yaml_data["cert_file"] = cfg["cert_file"]
@@ -584,15 +609,32 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
     if "heartbeat" in cfg:
         yaml_data["heartbeat"] = cfg['heartbeat']
     
+    # فرمت جدید: tcp_ports و udp_ports (ساده‌تر)
     if cfg.get('maps'):
-        yaml_data["maps"] = []
+        tcp_ports = []
+        udp_ports = []
         for m in cfg['maps']:
-            yaml_data["maps"].append({
-                "type": m['type'],
-                "bind": m['bind'],
-                "target": m['target']
-            })
+            # استخراج پورت از bind address (مثلاً "0.0.0.0:500" -> 500)
+            port = int(m['bind'].split(':')[-1])
+            if m['type'] == 'tcp':
+                tcp_ports.append(port)
+            elif m['type'] == 'udp':
+                udp_ports.append(port)
+        
+        if tcp_ports:
+            yaml_data["tcp_ports"] = tcp_ports
+        if udp_ports:
+            yaml_data["udp_ports"] = udp_ports
     
+    # TUN Mode configuration - همیشه اضافه می‌شه (حتی اگه خاموش باشه)
+    tun_cfg = cfg.get("tun_config") or {}  # اگه None باشه، {} بشه
+    yaml_data["tun"] = {
+        "enabled": tun_cfg.get("enabled", False),
+        "name": tun_cfg.get("name", "netrix0"),
+        "local": tun_cfg.get("local", "10.200.0.1/30"),
+        "mtu": tun_cfg.get("mtu", 1400),
+        "routes": tun_cfg.get("routes", [])
+    }
 
     comments = {
         "profile": f"Performance profile (default: balanced)",
@@ -610,7 +652,7 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "advanced.connection_timeout": f"Connection timeout in seconds (default: 600 = 10 minutes)",
         "advanced.stream_timeout": f"Stream max lifetime in seconds (default: 21600 = 6 hours)",
         "advanced.stream_idle_timeout": f"Stream idle timeout in seconds (default: 600 = 10 minutes)",
-        "advanced.max_connections": f"Max concurrent connections (default: 2000)",
+        "advanced.max_connections": f"Max concurrent connections (default: 0 = use 1M limit, practically unlimited )",
         "advanced.max_udp_flows": f"Max UDP flows (default: 5000)",
         "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 600 = 10 minutes)",
         "advanced.buffer_pool_size": f"Buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
@@ -619,6 +661,19 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "advanced.udp_data_slice_size": f"UDP data slice size in bytes (default: 1500 = MTU, 0 = use default, configurable)",
         "heartbeat": f"Heartbeat interval in seconds (default: 20, 0 = use default)",
         "verbose": f"Verbose logging (default: false)",
+        "encryption.enabled": "Enable ChaCha20-Poly1305 encryption (anti-DPI)",
+        "encryption.key": "Encryption key (hex 32 bytes or password, empty = use PSK)",
+        "stealth.padding_enabled": "Enable random padding (hides packet sizes)",
+        "stealth.padding_min": "Minimum padding bytes (default: 0)",
+        "stealth.padding_max": "Maximum padding bytes (default: 128)",
+        "stealth.jitter_enabled": "Enable timing jitter (breaks timing patterns)",
+        "stealth.jitter_min_ms": "Minimum jitter in ms (default: 5)",
+        "stealth.jitter_max_ms": "Maximum jitter in ms (default: 20)",
+        "tun.enabled": "Enable TUN mode (Layer 3 VPN)",
+        "tun.name": "TUN interface name (default: netrix0)",
+        "tun.local": "Local IP address with CIDR (e.g., 10.200.0.1/30)",
+        "tun.mtu": "MTU size (default: 1400)",
+        "tun.routes": "Networks to route through TUN",
     }
     
     if transport == "kcpmux":
@@ -714,7 +769,24 @@ def create_client_config_file(cfg: dict) -> Path:
     
     yaml_data["verbose"] = cfg.get("verbose", False)
     
-
+    # Encryption settings (ChaCha20-Poly1305) - همیشه اضافه می‌شه
+    yaml_data["encryption"] = {
+        "enabled": cfg.get("encryption_enabled", False),
+        "key": cfg.get("encryption_key", "")  # If empty, PSK will be used
+    }
+    
+    # Stealth settings (anti-DPI) - همیشه اضافه می‌شه
+    yaml_data["stealth"] = {
+        "padding_enabled": cfg.get("stealth_padding", False),
+        "padding_min": 0,
+        "padding_max": cfg.get("stealth_padding_max", 128),
+        "jitter_enabled": cfg.get("stealth_jitter", False),
+        "jitter_min_ms": 5,
+        "jitter_max_ms": 20
+    }
+    
+    # Health check port - always included
+    yaml_data["health_port"] = cfg.get('health_port', 19080)
     
     if "heartbeat" in cfg:
         yaml_data["heartbeat"] = cfg['heartbeat']
@@ -730,6 +802,15 @@ def create_client_config_file(cfg: dict) -> Path:
         if "udp_data_slice_size" in buffer_config:
             yaml_data["advanced"]["udp_data_slice_size"] = buffer_config["udp_data_slice_size"]
     
+    # TUN Mode configuration - همیشه اضافه می‌شه (حتی اگه خاموش باشه)
+    tun_cfg = cfg.get("tun_config") or {}  # اگه None باشه، {} بشه
+    yaml_data["tun"] = {
+        "enabled": tun_cfg.get("enabled", False),
+        "name": tun_cfg.get("name", "netrix0"),
+        "local": tun_cfg.get("local", "10.200.0.2/30"),
+        "mtu": tun_cfg.get("mtu", 1400),
+        "routes": tun_cfg.get("routes", [])  # خالی وقتی TUN غیرفعاله
+    }
 
     comments = {
         "profile": f"Performance profile (default: balanced)",
@@ -748,7 +829,7 @@ def create_client_config_file(cfg: dict) -> Path:
         "advanced.connection_timeout": f"Connection timeout in seconds (default: 600 = 10 minutes)",
         "advanced.stream_timeout": f"Stream max lifetime in seconds (default: 21600 = 6 hours)",
         "advanced.stream_idle_timeout": f"Stream idle timeout in seconds (default: 600 = 10 minutes)",
-        "advanced.max_connections": f"Max concurrent connections (default: 2000)",
+        "advanced.max_connections": f"Max concurrent connections (default: 0 = use 1M limit, practically unlimited )",
         "advanced.max_udp_flows": f"Max UDP flows (default: 5000)",
         "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 600 = 10 minutes)",
         "advanced.buffer_pool_size": f"Buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
@@ -757,6 +838,19 @@ def create_client_config_file(cfg: dict) -> Path:
         "advanced.udp_data_slice_size": f"UDP data slice size in bytes (default: 1500 = MTU, 0 = use default, configurable)",
         "heartbeat": f"Heartbeat interval in seconds (default: 20, 0 = use default)",
         "verbose": f"Verbose logging (default: false)",
+        "encryption.enabled": "Enable ChaCha20-Poly1305 encryption (anti-DPI)",
+        "encryption.key": "Encryption key (hex 32 bytes or password, empty = use PSK)",
+        "stealth.padding_enabled": "Enable random padding (hides packet sizes)",
+        "stealth.padding_min": "Minimum padding bytes (default: 0)",
+        "stealth.padding_max": "Maximum padding bytes (default: 128)",
+        "stealth.jitter_enabled": "Enable timing jitter (breaks timing patterns)",
+        "stealth.jitter_min_ms": "Minimum jitter in ms (default: 5)",
+        "stealth.jitter_max_ms": "Maximum jitter in ms (default: 20)",
+        "tun.enabled": "Enable TUN mode (Layer 3 VPN)",
+        "tun.name": "TUN interface name (default: netrix0)",
+        "tun.local": "Local IP address with CIDR (e.g., 10.200.0.2/30)",
+        "tun.mtu": "MTU size (default: 1400)",
+        "tun.routes": "Networks to route through TUN",
     }
     
     if any(p.get('transport') == 'kcpmux' for p in paths):
@@ -1164,10 +1258,19 @@ def create_server_tunnel():
             print(f"{BOLD}{FG_RED}╚══════════════════════════════════════════════════════════╝{RESET}")
             print()
             c_err("Netrix core is not installed!")
-            print(f"\n  {FG_YELLOW}Please install the core first from:{RESET}")
-            print(f"  {FG_CYAN}Main Menu → Option 6 (Core Management) → Install/Update Core{RESET}\n")
-            pause()
-            return
+            print(f"\n  {FG_YELLOW}You need to install the core first.{RESET}")
+            print(f"  {FG_CYAN}Go to: Main Menu → Option 6 (Core Management) → Install/Update Core{RESET}\n")
+            if ask_yesno(f"  {BOLD}Do you want to install the core now?{RESET}", default=True):
+                install_netrix_core()
+                if ensure_netrix_available():
+                    c_ok("Core installed successfully! Continuing...")
+                else:
+                    c_err("Core installation failed!")
+                    pause()
+                    return
+            else:
+                pause()
+                return
         
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
@@ -1185,6 +1288,11 @@ def create_server_tunnel():
         transport = transports[transport_choice]
         
         print(f"\n  {BOLD}{FG_CYAN}Server Configuration:{RESET}")
+        
+        # IPv6 support
+        print(f"  {FG_WHITE}Note: For IPv6, server will listen on both IPv4 and IPv6{RESET}")
+        use_ipv6 = ask_yesno(f"  {BOLD}Enable IPv6 support?{RESET}", default=False)
+        
         while True:
             tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
             if is_port_in_use(tport):
@@ -1193,8 +1301,25 @@ def create_server_tunnel():
                     continue
             break
         
+        # تنظیم listen address بر اساس IPv6
+        if use_ipv6:
+            listen_addr = f"[::]:{tport}"  # گوش بده روی همه IPv4 و IPv6
+        else:
+            listen_addr = f"0.0.0.0:{tport}"  # فقط IPv4
+        
         print(f"\n  {BOLD}{FG_CYAN}Security Settings:{RESET}")
         psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}")
+        
+        # Encryption (بعد از PSK - مرتبط با امنیت)
+        encryption_enabled = ask_yesno(f"  {BOLD}Enable encryption (ChaCha20-Poly1305)?{RESET} {FG_WHITE}(anti-DPI){RESET}", default=False)
+        encryption_key = ""
+        if encryption_enabled:
+            print(f"  {FG_WHITE}Note: Leave empty to use PSK as encryption key{RESET}")
+            try:
+                encryption_key = input(f"  {BOLD}Encryption Key:{RESET} {FG_WHITE}(empty = use PSK){RESET} ").strip()
+            except KeyboardInterrupt:
+                print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                raise UserCancelled()
         
         print(f"\n  {BOLD}{FG_CYAN}Performance Profiles:{RESET}")
         print(f"  {FG_BLUE}1){RESET} {FG_GREEN}balanced{RESET} {FG_WHITE}(default - best overall){RESET}")
@@ -1379,9 +1504,61 @@ def create_server_tunnel():
                 "udp_data_slice_size": 0
             }
         
+        # Stealth settings - only ask if encryption is enabled
+        stealth_padding = False
+        stealth_padding_max = 0
+        stealth_jitter = False
+        
+        if encryption_enabled:
+            print(f"\n  {BOLD}{FG_CYAN}Stealth Settings (Anti-DPI):{RESET}")
+            print(f"  {FG_WHITE}These settings help hide traffic patterns from DPI systems.{RESET}")
+            
+            stealth_padding = ask_yesno(f"  {BOLD}Enable random padding?{RESET} {FG_WHITE}(hides packet sizes){RESET}", default=True)
+            if stealth_padding:
+                stealth_padding_max = ask_int(f"  {BOLD}Max padding bytes:{RESET} {FG_WHITE}(0-256, recommended: 32-128){RESET}", min_=0, max_=256, default=128)
+            
+            stealth_jitter = ask_yesno(f"  {BOLD}Enable timing jitter?{RESET} {FG_WHITE}(adds latency, breaks timing patterns){RESET}", default=False)
+        
+        # TUN Mode (Layer 3 VPN) - برای L2TP/IPsec و پروتکل‌های VPN
+        print(f"\n  {BOLD}{FG_CYAN}TUN Mode (Layer 3 VPN):{RESET}")
+        print(f"  {FG_WHITE}TUN mode creates a virtual network interface for full VPN functionality.{RESET}")
+        print(f"  {FG_WHITE}Required for: L2TP/IPsec, OpenVPN (tun), WireGuard, etc.{RESET}")
+        print(f"  {FG_YELLOW}⚠️  Note: Requires root privileges and Linux kernel support.{RESET}")
+        tun_enabled = ask_yesno(f"  {BOLD}Enable TUN mode?{RESET}", default=False)
+        
+        tun_config = None
+        if tun_enabled:
+            print(f"\n  {BOLD}{FG_CYAN}TUN Configuration:{RESET}")
+            tun_name = ask_nonempty(f"  {BOLD}Interface Name:{RESET}", default="netrix0")
+            tun_local = ask_nonempty(f"  {BOLD}Local IP (CIDR):{RESET} {FG_WHITE}(e.g., 10.200.0.1/30){RESET}", default="10.200.0.1/30")
+            tun_mtu = ask_int(f"  {BOLD}MTU:{RESET}", min_=576, max_=9000, default=1400)
+            
+            # Routes (optional)
+            tun_routes = []
+            print(f"  {FG_WHITE}Routes: Add networks to route through TUN (e.g., 192.168.1.0/24){RESET}")
+            while True:
+                try:
+                    route = input(f"  {BOLD}Add Route:{RESET} {FG_WHITE}(empty to finish){RESET} ").strip()
+                except KeyboardInterrupt:
+                    print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                    raise UserCancelled()
+                if not route:
+                    break
+                tun_routes.append(route)
+                c_ok(f"  ✅ Route added: {route}")
+            
+            tun_config = {
+                "enabled": True,
+                "name": tun_name,
+                "local": tun_local,
+                "mtu": tun_mtu,
+                "routes": tun_routes
+            }
+            c_ok(f"  ✅ TUN mode configured: {tun_name} ({tun_local})")
+        
         cfg = {
             "tport": tport,
-            "listen": f"0.0.0.0:{tport}",
+            "listen": listen_addr,
             "transport": transport,
             "psk": psk,
             "profile": profile,
@@ -1389,7 +1566,13 @@ def create_server_tunnel():
             "verbose": verbose,
             "max_sessions": max_sessions,  
             "heartbeat": heartbeat, 
-            "buffer_pool_config": buffer_pool_config  
+            "buffer_pool_config": buffer_pool_config,
+            "encryption_enabled": encryption_enabled,
+            "encryption_key": encryption_key,
+            "stealth_padding": stealth_padding,
+            "stealth_padding_max": stealth_padding_max,
+            "stealth_jitter": stealth_jitter,
+            "tun_config": tun_config
         }
         
         if cert_file and key_file:
@@ -1423,10 +1606,19 @@ def create_client_tunnel():
             print(f"{BOLD}{FG_RED}╚══════════════════════════════════════════════════════════╝{RESET}")
             print()
             c_err("Netrix core is not installed!")
-            print(f"\n  {FG_YELLOW}Please install the core first from:{RESET}")
-            print(f"  {FG_CYAN}Main Menu → Option 6 (Core Management) → Install/Update Core{RESET}\n")
-            pause()
-            return
+            print(f"\n  {FG_YELLOW}You need to install the core first.{RESET}")
+            print(f"  {FG_CYAN}Go to: Main Menu → Option 6 (Core Management) → Install/Update Core{RESET}\n")
+            if ask_yesno(f"  {BOLD}Do you want to install the core now?{RESET}", default=True):
+                install_netrix_core()
+                if ensure_netrix_available():
+                    c_ok("Core installed successfully! Continuing...")
+                else:
+                    c_err("Core installation failed!")
+                    pause()
+                    return
+            else:
+                pause()
+                return
         
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
@@ -1444,13 +1636,34 @@ def create_client_tunnel():
         transport = transports[transport_choice]
         
         print(f"\n  {BOLD}{FG_CYAN}Server Connection:{RESET}")
+        print(f"  {FG_WHITE}IPv4 example: 1.2.3.4{RESET}")
+        print(f"  {FG_WHITE}IPv6 example: 2001:db8::1 or fd00::1{RESET}")
         server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET}")
         
         tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-        server_addr = f"{server_ip}:{tport}"
+        
+        # تشخیص IPv6 و فرمت صحیح
+        if ':' in server_ip and not server_ip.startswith('['):
+            # IPv6 address - نیاز به براکت داره
+            server_addr = f"[{server_ip}]:{tport}"
+            print(f"  {FG_GREEN}✅ IPv6 detected, formatted as: {server_addr}{RESET}")
+        else:
+            server_addr = f"{server_ip}:{tport}"
         
         print(f"\n  {BOLD}{FG_CYAN}Security Settings:{RESET}")
         psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}")
+        
+        # Encryption (بعد از PSK - مرتبط با امنیت)
+        print(f"  {FG_WHITE}Note: Must match server settings!{RESET}")
+        encryption_enabled = ask_yesno(f"  {BOLD}Enable encryption (ChaCha20-Poly1305)?{RESET} {FG_WHITE}(anti-DPI){RESET}", default=False)
+        encryption_key = ""
+        if encryption_enabled:
+            print(f"  {FG_WHITE}Note: Leave empty to use PSK as encryption key{RESET}")
+            try:
+                encryption_key = input(f"  {BOLD}Encryption Key:{RESET} {FG_WHITE}(empty = use PSK){RESET} ").strip()
+            except KeyboardInterrupt:
+                print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                raise UserCancelled()
         
         print(f"\n  {BOLD}{FG_CYAN}Performance Profiles:{RESET}")
         print(f"  {FG_BLUE}1){RESET} {FG_GREEN}balanced{RESET} {FG_WHITE}(default - best overall){RESET}")
@@ -1464,7 +1677,7 @@ def create_client_tunnel():
         paths = []
         
         print(f"\n  {BOLD}{FG_CYAN}Connection Settings:{RESET}")
-        connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-24){RESET}", min_=1, max_=100, default=8)
+        connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-16 ){RESET}", min_=1, max_=100, default=24)
         mux_con = ask_int(f"  {BOLD}Mux Con:{RESET} {FG_WHITE}(recommended: 10){RESET}", min_=1, max_=100, default=10)
         retry_interval = ask_int(f"  {BOLD}Retry Interval:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=3)
         dial_timeout = ask_int(f"  {BOLD}Dial Timeout:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=10)
@@ -1491,11 +1704,17 @@ def create_client_tunnel():
                 break
             
             print(f"\n  {BOLD}{FG_CYAN}Backup Server #{len(paths) + 1}:{RESET} {FG_WHITE}(Additional Iran Server){RESET}")
+            print(f"  {FG_WHITE}IPv4 example: 1.2.3.4 | IPv6 example: 2001:db8::1{RESET}")
             
-            new_server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET} {FG_WHITE}(e.g., 1.2.3.4){RESET}")
+            new_server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET}")
             
             new_tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-            new_server_addr = f"{new_server_ip}:{new_tport}"
+            
+            # تشخیص IPv6 و فرمت صحیح
+            if ':' in new_server_ip and not new_server_ip.startswith('['):
+                new_server_addr = f"[{new_server_ip}]:{new_tport}"
+            else:
+                new_server_addr = f"{new_server_ip}:{new_tport}"
             
             print(f"\n  {BOLD}Transport Types:{RESET}")
             print(f"  {FG_CYAN}1){RESET} {FG_GREEN}tcpmux{RESET} (TCP with smux)")
@@ -1505,7 +1724,7 @@ def create_client_tunnel():
             new_transport_choice = ask_int(f"\n  {BOLD}Select transport:{RESET}", min_=1, max_=4, default=1)
             new_transport = transports[new_transport_choice]
             
-            new_connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-24){RESET}", min_=1, max_=100, default=8)
+            new_connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-16 ){RESET}", min_=1, max_=100, default=24)
             
             new_retry_interval = ask_int(f"  {BOLD}Retry Interval:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=3)
             new_dial_timeout = ask_int(f"  {BOLD}Dial Timeout:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=10)
@@ -1543,6 +1762,61 @@ def create_client_tunnel():
                 "udp_data_slice_size": 0
             }
         
+        # Stealth settings - only ask if encryption is enabled
+        stealth_padding = False
+        stealth_padding_max = 0
+        stealth_jitter = False
+        
+        if encryption_enabled:
+            print(f"\n  {BOLD}{FG_CYAN}Stealth Settings (Anti-DPI):{RESET}")
+            print(f"  {FG_WHITE}These settings help hide traffic patterns from DPI systems.{RESET}")
+            print(f"  {FG_YELLOW}⚠️  Must match server settings!{RESET}")
+            
+            stealth_padding = ask_yesno(f"  {BOLD}Enable random padding?{RESET} {FG_WHITE}(hides packet sizes){RESET}", default=True)
+            if stealth_padding:
+                stealth_padding_max = ask_int(f"  {BOLD}Max padding bytes:{RESET} {FG_WHITE}(0-256, recommended: 32-128){RESET}", min_=0, max_=256, default=128)
+            
+            stealth_jitter = ask_yesno(f"  {BOLD}Enable timing jitter?{RESET} {FG_WHITE}(adds latency, breaks timing patterns){RESET}", default=False)
+        
+        # TUN Mode (Layer 3 VPN) - برای L2TP/IPsec و پروتکل‌های VPN
+        print(f"\n  {BOLD}{FG_CYAN}TUN Mode (Layer 3 VPN):{RESET}")
+        print(f"  {FG_WHITE}TUN mode creates a virtual network interface for full VPN functionality.{RESET}")
+        print(f"  {FG_WHITE}Required for: L2TP/IPsec, OpenVPN (tun), WireGuard, etc.{RESET}")
+        print(f"  {FG_YELLOW}⚠️  Note: Requires root privileges and Linux kernel support.{RESET}")
+        print(f"  {FG_YELLOW}⚠️  Must match server TUN settings!{RESET}")
+        tun_enabled = ask_yesno(f"  {BOLD}Enable TUN mode?{RESET}", default=False)
+        
+        tun_config = None
+        if tun_enabled:
+            print(f"\n  {BOLD}{FG_CYAN}TUN Configuration:{RESET}")
+            tun_name = ask_nonempty(f"  {BOLD}Interface Name:{RESET}", default="netrix0")
+            print(f"  {FG_WHITE}Note: Use different IP than server (e.g., server=10.200.0.1/30, client=10.200.0.2/30){RESET}")
+            tun_local = ask_nonempty(f"  {BOLD}Local IP (CIDR):{RESET} {FG_WHITE}(e.g., 10.200.0.2/30){RESET}", default="10.200.0.2/30")
+            tun_mtu = ask_int(f"  {BOLD}MTU:{RESET}", min_=576, max_=9000, default=1400)
+            
+            # Routes (optional)
+            tun_routes = []
+            print(f"  {FG_WHITE}Routes: Add networks to route through TUN (e.g., 0.0.0.0/0 for all traffic){RESET}")
+            while True:
+                try:
+                    route = input(f"  {BOLD}Add Route:{RESET} {FG_WHITE}(empty to finish){RESET} ").strip()
+                except KeyboardInterrupt:
+                    print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                    raise UserCancelled()
+                if not route:
+                    break
+                tun_routes.append(route)
+                c_ok(f"  ✅ Route added: {route}")
+            
+            tun_config = {
+                "enabled": True,
+                "name": tun_name,
+                "local": tun_local,
+                "mtu": tun_mtu,
+                "routes": tun_routes
+            }
+            c_ok(f"  ✅ TUN mode configured: {tun_name} ({tun_local})")
+        
         cfg = {
             "psk": psk,
             "profile": profile,
@@ -1550,7 +1824,13 @@ def create_client_tunnel():
             "paths": paths,
             "verbose": verbose,
             "heartbeat": heartbeat,
-            "buffer_pool_config": buffer_pool_config
+            "buffer_pool_config": buffer_pool_config,
+            "encryption_enabled": encryption_enabled,
+            "encryption_key": encryption_key,
+            "stealth_padding": stealth_padding,
+            "stealth_padding_max": stealth_padding_max,
+            "stealth_jitter": stealth_jitter,
+            "tun_config": tun_config
         }
         
         config_path = create_client_config_file(cfg)
@@ -2652,7 +2932,7 @@ def main_menu():
         else:
             print(f"    {FG_RED}Core Status: ❌ Not Installed{RESET}")
         
-        print(f"    {FG_CYAN}Support: {FG_WHITE}@Karrari_Dev{RESET}")
+        print(f"    {FG_CYAN}Support: {FG_WHITE}@g0dline{RESET}")
         print()
         print(f"  {BOLD}{FG_GREEN}1){RESET} Create Tunnel")
         print(f"  {BOLD}{FG_BLUE}2){RESET} Status")
