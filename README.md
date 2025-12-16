@@ -1,7 +1,7 @@
 # Netrix - Advanced Reverse Tunneling Solution
 
 [![Go Version](https://img.shields.io/badge/Go-1.20+-00ADD8?style=flat&logo=go)](https://golang.org/)
-[![Release](https://img.shields.io/badge/Release-Stable-green.svg)](https://github.com/Karrari-Dev/Netrix-)
+[![Release](https://img.shields.io/badge/Release-Stable-green.svg)](https://github.com/Karrari-Dev/Netrix-/releases)
 
 ---
 
@@ -112,7 +112,18 @@ Netrix provides 4 pre-configured performance profiles:
 
 ## Installation
 
-### Using netrixcore.py (Recommended)
+### Quick Install (One Command)
+
+```bash
+wget https://raw.githubusercontent.com/Karrari-Dev/Netrix-/main/netrix-manager.py -O /usr/local/bin/netrix-manager.py && chmod +x /usr/local/bin/netrix-manager.py && echo 'alias netrix-manager="python3 /usr/local/bin/netrix-manager.py"' >> ~/.bashrc && source ~/.bashrc
+```
+
+After installation, just run:
+```bash
+netrix-manager
+```
+
+### Alternative Installation
 
 ```bash
 # Download and run the management script
@@ -767,7 +778,18 @@ Netrix شامل 4 پروفایل از پیش تنظیم شده است:
 
 ## نصب
 
-### استفاده از netrixcore.py (توصیه شده)
+### نصب سریع (یک دستور)
+
+```bash
+wget https://raw.githubusercontent.com/Karrari-Dev/Netrix-/main/netrix-manager.py -O /usr/local/bin/netrix-manager.py && chmod +x /usr/local/bin/netrix-manager.py && echo 'alias netrix-manager="python3 /usr/local/bin/netrix-manager.py"' >> ~/.bashrc && source ~/.bashrc
+```
+
+بعد از نصب، فقط اجرا کنید:
+```bash
+netrix-manager
+```
+
+### نصب جایگزین
 
 ```bash
 # دانلود و اجرای اسکریپت مدیریت
