@@ -128,12 +128,12 @@ netrix-manager
 ```bash
 # Download binary for your architecture
 # AMD64
-wget https://github.com/Karrari-Dev/Netrix-/releases/download/v1.0.0/netrix-amd64.tar.gz
+wget https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.0/netrix-amd64.tar.gz
 tar -xzf netrix-amd64.tar.gz
 mv netrix /usr/local/bin/
 
 # ARM64
-wget https://github.com/Karrari-Dev/Netrix-/releases/download/v1.0.0/netrix-arm64.tar.gz
+wget https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.0/netrix-arm64.tar.gz
 tar -xzf netrix-arm64.tar.gz
 mv netrix /usr/local/bin/
 ```
@@ -785,14 +785,14 @@ netrix-manager
 ```bash
 # دانلود باینری برای معماری شما
 # AMD64
-wget https://github.com/Karrari-Dev/Netrix-/releases/download/v1.0.0/netrix-amd64.tar.gz
+wget https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.0/netrix-amd64.tar.gz
 tar -xzf netrix-amd64.tar.gz
 mv netrix /usr/local/bin/
 ```
 
 ```bash
 # ARM64
-wget https://github.com/Karrari-Dev/Netrix-/releases/download/v1.0.0/netrix-arm64.tar.gz
+wget https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.0/netrix-arm64.tar.gz
 tar -xzf netrix-arm64.tar.gz
 mv netrix /usr/local/bin/
 ```
