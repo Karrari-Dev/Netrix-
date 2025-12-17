@@ -16,8 +16,8 @@ except ImportError:
 ROOT_DIR = Path("/root")
 NETRIX_BINARY = "/usr/local/bin/netrix"
 NETRIX_RELEASE_URLS = {
-    "amd64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.0/netrix-amd64.tar.gz",
-    "arm64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.0/netrix-arm64.tar.gz"
+    "amd64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.1/netrix-amd64.tar.gz",
+    "arm64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.1/netrix-arm64.tar.gz"
 }
 
 FG_BLACK = "\033[30m"
@@ -3026,3 +3026,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
