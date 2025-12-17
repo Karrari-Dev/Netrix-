@@ -666,7 +666,10 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "name": tun_cfg.get("name", "netrix0"),
         "local": tun_cfg.get("local", "10.200.0.1/30"),
         "mtu": tun_cfg.get("mtu", 1400),
-        "routes": tun_cfg.get("routes", [])
+        "routes": tun_cfg.get("routes", []),
+        "forward_l2tp": tun_cfg.get("forward_l2tp", False),
+        "l2tp_ports": tun_cfg.get("l2tp_ports", [500, 4500, 1701]),
+        "l2tp_dest_ip": tun_cfg.get("l2tp_dest_ip", ""),
     }
 
     comments = {
@@ -707,6 +710,9 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "tun.local": "Local IP address with CIDR (e.g., 10.200.0.1/30)",
         "tun.mtu": "MTU size (default: 1400)",
         "tun.routes": "Networks to route through TUN",
+        "tun.forward_l2tp": "Auto-add iptables DNAT rules for L2TP/IPsec ports (500,4500,1701) on server",
+        "tun.l2tp_ports": "List of UDP ports to auto-forward for L2TP/IPsec (default: [500, 4500, 1701])",
+        "tun.l2tp_dest_ip": "Optional DNAT destination IP for L2TP/IPsec (empty = use tun.local IP)",
     }
     
     if transport == "kcpmux":
@@ -1576,13 +1582,33 @@ def create_server_tunnel():
                     break
                 tun_routes.append(route)
                 c_ok(f"  ✅ Route added: {route}")
+
+            print(f"\n  {BOLD}{FG_CYAN}L2TP/IPsec Auto-Forward:{RESET}")
+            print(f"  {FG_WHITE}Automatically forward UDP ports 500/4500/1701 to the TUN IP for external L2TP/IPsec servers.{RESET}")
+            forward_l2tp = ask_yesno(
+                f"  {BOLD}Enable auto-forward L2TP/IPsec ports (500,4500,1701)?{RESET}", default=True
+            )
+
+            l2tp_dest_ip = ""
+            if forward_l2tp:
+                print(f"  {FG_WHITE}DNAT Destination IP:{RESET}")
+                print(f"  {FG_WHITE}- Leave empty to use the server TUN IP (tun.local){RESET}")
+                print(f"  {FG_WHITE}- Or enter the remote/peer TUN IP (e.g., client-side TUN IP) if you want DNAT to that.{RESET}")
+                try:
+                    l2tp_dest_ip = input(f"  {BOLD}L2TP DNAT Destination IP:{RESET} {FG_WHITE}(optional){RESET} ").strip()
+                except KeyboardInterrupt:
+                    print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                    raise UserCancelled()
             
             tun_config = {
                 "enabled": True,
                 "name": tun_name,
                 "local": tun_local,
                 "mtu": tun_mtu,
-                "routes": tun_routes
+                "routes": tun_routes,
+                "forward_l2tp": forward_l2tp,
+                "l2tp_ports": [500, 4500, 1701],
+                "l2tp_dest_ip": l2tp_dest_ip,
             }
             c_ok(f"  ✅ TUN mode configured: {tun_name} ({tun_local})")
         
@@ -3000,4 +3026,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
