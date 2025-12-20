@@ -12,12 +12,14 @@ except ImportError:
     print("❌ PyYAML library not found. Install with: pip install pyyaml")
     sys.exit(1)
 
+# ========== Version ==========
+VERSION = "2.0.2"
 
 ROOT_DIR = Path("/root")
 NETRIX_BINARY = "/usr/local/bin/netrix"
 NETRIX_RELEASE_URLS = {
-    "amd64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.1/netrix-amd64.tar.gz",
-    "arm64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.1/netrix-arm64.tar.gz"
+    "amd64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.2/netrix-amd64.tar.gz",
+    "arm64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.2/netrix-arm64.tar.gz"
 }
 
 FG_BLACK = "\033[30m"
@@ -233,36 +235,36 @@ def get_default_smux_config(profile: str = "balanced") -> dict:
     """تنظیمات پیش‌فرض SMUX بر اساس profile - همگام با netrix.go"""
     profiles = {
         "balanced": {
-            "keepalive": 20,       
-            "max_recv": 4194304,  
-            "max_stream": 2097152,  
-            "frame_size": 32768,    
+            "keepalive": 15,       # 15s - استاندارد
+            "max_recv": 4194304,   # 4MB - استاندارد
+            "max_stream": 1048576, # 1MB - استاندارد
+            "frame_size": 32768,   # 32KB - استاندارد
             "version": 2,
-            "mux_con": 8         
+            "mux_con": 4           # 4 - استاندارد
         },
         "aggressive": {
-            "keepalive": 30,       
-            "max_recv": 8388608,   
-            "max_stream": 4194304, 
-            "frame_size": 65535,   
+            "keepalive": 20,       # 20s
+            "max_recv": 8388608,   # 8MB
+            "max_stream": 2097152, # 2MB
+            "frame_size": 32768,   # 32KB
             "version": 2,
-            "mux_con": 16         
+            "mux_con": 8           # 8
         },
         "latency": {
-            "keepalive": 5,      
-            "max_recv": 2097152,   
-            "max_stream": 1048576,
-            "frame_size": 16384,    
+            "keepalive": 10,       # 10s
+            "max_recv": 2097152,   # 2MB
+            "max_stream": 1048576, # 1MB
+            "frame_size": 16384,   # 16KB
             "version": 2,
-            "mux_con": 4           
+            "mux_con": 2           # 2
         },
         "cpu-efficient": {
-            "keepalive": 60,    
-            "max_recv": 2097152,   
-            "max_stream": 1048576, 
-            "frame_size": 16384,  
+            "keepalive": 30,       # 30s
+            "max_recv": 2097152,   # 2MB
+            "max_stream": 1048576, # 1MB
+            "frame_size": 16384,   # 16KB
             "version": 2,
-            "mux_con": 4           
+            "mux_con": 2           # 2
         }
     }
     return profiles.get(profile.lower(), profiles["balanced"])
@@ -272,71 +274,72 @@ def get_default_kcp_config(profile: str = "balanced") -> dict:
     profiles = {
         "balanced": {
             "nodelay": 0,      
-            "interval": 20,   
+            "interval": 30,    # 30ms - استاندارد
             "resend": 2,       
             "nc": 0,         
-            "sndwnd": 512,    
-            "rcvwnd": 512,
+            "sndwnd": 256,     # 256 - استاندارد
+            "rcvwnd": 256,
             "mtu": 1350
         },
         "aggressive": {
             "nodelay": 0,      
-            "interval": 10,   
+            "interval": 20,    # 20ms
             "resend": 2,
             "nc": 1,          
-            "sndwnd": 2048,   
-            "rcvwnd": 2048,
+            "sndwnd": 512,     # 512
+            "rcvwnd": 512,
             "mtu": 1400      
         },
         "latency": {
             "nodelay": 1,     
-            "interval": 5,  
+            "interval": 10,    # 10ms
             "resend": 1,       
             "nc": 1,           
-            "sndwnd": 256,   
-            "rcvwnd": 256,
+            "sndwnd": 128,     # 128
+            "rcvwnd": 128,
             "mtu": 1200        
         },
         "cpu-efficient": {
             "nodelay": 0,      
-            "interval": 50,    
-            "resend": 3,     
+            "interval": 40,    # 40ms
+            "resend": 2,     
             "nc": 0,            
             "sndwnd": 128,     
             "rcvwnd": 128,
-            "mtu": 1400
+            "mtu": 1350
         }
     }
     return profiles.get(profile.lower(), profiles["balanced"])
 
 def get_default_advanced_config(transport: str) -> dict:
-    """تنظیمات پیش‌فرض Advanced بر اساس transport - بهینه شده برای 16K streams"""
+    """تنظیمات پیش‌فرض Advanced بر اساس transport - همگام با netrix.go"""
     base_config = {
         "tcp_nodelay": True,
-        "tcp_keepalive": 30,          
-        "tcp_read_buffer": 8388608,   
-        "tcp_write_buffer": 8388608,  
-        "cleanup_interval": 60,       
-        "session_timeout": 120,     
-        "connection_timeout": 600,   
-        "stream_timeout": 21600,      
-        "stream_idle_timeout": 600,   
+        "tcp_keepalive": 30,          # 30s - استاندارد
+        "tcp_read_buffer": 4194304,   # 4MB - استاندارد
+        "tcp_write_buffer": 4194304,  # 4MB - استاندارد
+        "cleanup_interval": 60,       # 60s - افزایش برای scale بالا
+        "session_timeout": 600,       # 10min - افزایش برای stability
+        "connection_timeout": 900,    # 15min - افزایش برای کاربران زیاد
+        "stream_timeout": 28800,      # 8h - برای session های طولانی
+        "stream_idle_timeout": 1800,  # 30min - افزایش برای OpenVPN
         "max_connections": 0,    
-        "max_udp_flows": 5000,         
-        "udp_flow_timeout": 600,       
+        "max_udp_flows": 100000,      # 100,000 - برای 10,000+ کاربر
+        "udp_flow_timeout": 7200,     # 2h - افزایش برای OpenVPN/L2TP
+        "tls_insecure_skip_verify": True,  # برای self-signed certs
         "verbose": False
     }
     
 
     if transport in ("kcpmux", "kcp"):
         base_config.update({
-            "udp_read_buffer": 4194304,    
-            "udp_write_buffer": 4194304    
+            "udp_read_buffer": 4194304,    # 4MB - افزایش برای OpenVPN
+            "udp_write_buffer": 4194304    # 4MB - افزایش برای OpenVPN
         })
     elif transport in ("wsmux", "wssmux"):
         base_config.update({
-            "websocket_read_buffer": 524288,   
-            "websocket_write_buffer": 524288,  
+            "websocket_read_buffer": 524288,   # 512KB - افزایش برای scale بالا
+            "websocket_write_buffer": 524288,  # 512KB - افزایش برای scale بالا
             "websocket_compression": False    
         })
     
@@ -621,6 +624,7 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
     
     yaml_data["encryption"] = {
         "enabled": cfg.get("encryption_enabled", False),
+        "algorithm": cfg.get("encryption_algorithm", "chacha"),  # "chacha" or "aes-gcm"
         "key": cfg.get("encryption_key", "")
     }
     
@@ -676,28 +680,30 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "profile": f"Performance profile (default: balanced)",
         "smux.keepalive": f"Keepalive interval in seconds (default: {smux_default['keepalive']})",
         "smux.max_recv": f"Max receive buffer in bytes (default: {smux_default['max_recv']} = 4MB)",
-        "smux.max_stream": f"Max stream buffer in bytes (default: {smux_default['max_stream']} = 2MB)",
+        "smux.max_stream": f"Max stream buffer in bytes (default: {smux_default['max_stream']} = 1MB)",
         "smux.frame_size": f"Frame size in bytes (default: {smux_default['frame_size']} = 32KB)",
         "smux.version": f"SMUX version (default: {smux_default['version']})",
         "advanced.tcp_nodelay": f"TCP NoDelay (default: true)",
         "advanced.tcp_keepalive": f"TCP KeepAlive in seconds (default: 30)",
-        "advanced.tcp_read_buffer": f"TCP read buffer in bytes (default: 8388608 = 8MB)",
-        "advanced.tcp_write_buffer": f"TCP write buffer in bytes (default: 8388608 = 8MB)",
-        "advanced.cleanup_interval": f"Cleanup interval in seconds (default: 60 = 1 minute)",
-        "advanced.session_timeout": f"Session timeout in seconds (default: 120 = 2 minutes, 6 × heartbeat)",
-        "advanced.connection_timeout": f"Connection timeout in seconds (default: 600 = 10 minutes)",
-        "advanced.stream_timeout": f"Stream max lifetime in seconds (default: 21600 = 6 hours)",
-        "advanced.stream_idle_timeout": f"Stream idle timeout in seconds (default: 600 = 10 minutes)",
-        "advanced.max_connections": f"Max concurrent connections (default: 0 = use 1M limit, practically unlimited )",
-        "advanced.max_udp_flows": f"Max UDP flows (default: 5000)",
-        "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 600 = 10 minutes)",
+        "advanced.tcp_read_buffer": f"TCP read buffer in bytes (default: 4194304 = 4MB)",
+        "advanced.tcp_write_buffer": f"TCP write buffer in bytes (default: 4194304 = 4MB)",
+        "advanced.cleanup_interval": f"Cleanup interval in seconds (default: 60)",
+        "advanced.session_timeout": f"Session timeout in seconds (default: 600 = 10 minutes)",
+        "advanced.connection_timeout": f"Connection timeout in seconds (default: 900 = 15 minutes)",
+        "advanced.stream_timeout": f"Stream max lifetime in seconds (default: 28800 = 8 hours)",
+        "advanced.stream_idle_timeout": f"Stream idle timeout in seconds (default: 1800 = 30 minutes)",
+        "advanced.max_connections": f"Max concurrent connections (default: 0 = use 5M limit, practically unlimited)",
+        "advanced.max_udp_flows": f"Max UDP flows (default: 100000 for 10K+ users)",
+        "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 7200 = 2 hours)",
+        "advanced.tls_insecure_skip_verify": f"Skip TLS certificate verification (default: true for self-signed certs)",
         "advanced.buffer_pool_size": f"Buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
         "advanced.large_buffer_pool_size": f"Large buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
         "advanced.udp_frame_pool_size": f"UDP frame pool size in bytes (default: 32768 = 32KB, 0 = use default, configurable)",
         "advanced.udp_data_slice_size": f"UDP data slice size in bytes (default: 1500 = MTU, 0 = use default, configurable)",
-        "heartbeat": f"Heartbeat interval in seconds (default: 20, 0 = use default)",
+        "heartbeat": f"Heartbeat interval in seconds (default: 15, 0 = use default)",
         "verbose": f"Verbose logging (default: false)",
-        "encryption.enabled": "Enable ChaCha20-Poly1305 encryption (anti-DPI)",
+        "encryption.enabled": "Enable AEAD encryption (anti-DPI)",
+        "encryption.algorithm": "Encryption algorithm: 'chacha' (default) or 'aes-gcm' (faster with AES-NI)",
         "encryption.key": "Encryption key (hex 32 bytes or password, empty = use PSK)",
         "stealth.padding_enabled": "Enable random padding (hides packet sizes)",
         "stealth.padding_min": "Minimum padding bytes (default: 0)",
@@ -811,6 +817,7 @@ def create_client_config_file(cfg: dict) -> Path:
     
     yaml_data["encryption"] = {
         "enabled": cfg.get("encryption_enabled", False),
+        "algorithm": cfg.get("encryption_algorithm", "chacha"),  # "chacha" or "aes-gcm"
         "key": cfg.get("encryption_key", "")
     }
     
@@ -858,23 +865,25 @@ def create_client_config_file(cfg: dict) -> Path:
         "smux.mux_con": f"Number of multiplexed connections (default: {smux_default['mux_con']})",
         "advanced.tcp_nodelay": f"TCP NoDelay (default: true)",
         "advanced.tcp_keepalive": f"TCP KeepAlive in seconds (default: 30)",
-        "advanced.tcp_read_buffer": f"TCP read buffer in bytes (default: 8388608 = 8MB)",
-        "advanced.tcp_write_buffer": f"TCP write buffer in bytes (default: 8388608 = 8MB)",
-        "advanced.cleanup_interval": f"Cleanup interval in seconds (default: 60 = 1 minute)",
-        "advanced.session_timeout": f"Session timeout in seconds (default: 120 = 2 minutes, 6 × heartbeat)",
-        "advanced.connection_timeout": f"Connection timeout in seconds (default: 600 = 10 minutes)",
-        "advanced.stream_timeout": f"Stream max lifetime in seconds (default: 21600 = 6 hours)",
-        "advanced.stream_idle_timeout": f"Stream idle timeout in seconds (default: 600 = 10 minutes)",
-        "advanced.max_connections": f"Max concurrent connections (default: 0 = use 1M limit, practically unlimited )",
-        "advanced.max_udp_flows": f"Max UDP flows (default: 5000)",
-        "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 600 = 10 minutes)",
+        "advanced.tcp_read_buffer": f"TCP read buffer in bytes (default: 4194304 = 4MB)",
+        "advanced.tcp_write_buffer": f"TCP write buffer in bytes (default: 4194304 = 4MB)",
+        "advanced.cleanup_interval": f"Cleanup interval in seconds (default: 60)",
+        "advanced.session_timeout": f"Session timeout in seconds (default: 600 = 10 minutes)",
+        "advanced.connection_timeout": f"Connection timeout in seconds (default: 900 = 15 minutes)",
+        "advanced.stream_timeout": f"Stream max lifetime in seconds (default: 28800 = 8 hours)",
+        "advanced.stream_idle_timeout": f"Stream idle timeout in seconds (default: 1800 = 30 minutes)",
+        "advanced.max_connections": f"Max concurrent connections (default: 0 = use 5M limit, practically unlimited)",
+        "advanced.max_udp_flows": f"Max UDP flows (default: 100000 for 10K+ users)",
+        "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 7200 = 2 hours)",
+        "advanced.tls_insecure_skip_verify": f"Skip TLS certificate verification (default: true for self-signed certs)",
         "advanced.buffer_pool_size": f"Buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
         "advanced.large_buffer_pool_size": f"Large buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
         "advanced.udp_frame_pool_size": f"UDP frame pool size in bytes (default: 32768 = 32KB, 0 = use default, configurable)",
         "advanced.udp_data_slice_size": f"UDP data slice size in bytes (default: 1500 = MTU, 0 = use default, configurable)",
-        "heartbeat": f"Heartbeat interval in seconds (default: 20, 0 = use default)",
+        "heartbeat": f"Heartbeat interval in seconds (default: 15, 0 = use default)",
         "verbose": f"Verbose logging (default: false)",
-        "encryption.enabled": "Enable ChaCha20-Poly1305 encryption (anti-DPI)",
+        "encryption.enabled": "Enable AEAD encryption (anti-DPI)",
+        "encryption.algorithm": "Encryption algorithm: 'chacha' (default) or 'aes-gcm' (faster with AES-NI)",
         "encryption.key": "Encryption key (hex 32 bytes or password, empty = use PSK)",
         "stealth.padding_enabled": "Enable random padding (hides packet sizes)",
         "stealth.padding_min": "Minimum padding bytes (default: 0)",
@@ -1350,9 +1359,16 @@ def create_server_tunnel():
         print(f"\n  {BOLD}{FG_CYAN}Security Settings:{RESET}")
         psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}")
         
-        encryption_enabled = ask_yesno(f"  {BOLD}Enable encryption (ChaCha20-Poly1305)?{RESET} {FG_WHITE}(anti-DPI){RESET}", default=False)
+        encryption_enabled = ask_yesno(f"  {BOLD}Enable encryption?{RESET} {FG_WHITE}(anti-DPI){RESET}", default=False)
         encryption_key = ""
+        encryption_algorithm = "chacha"
         if encryption_enabled:
+            print(f"\n  {BOLD}{FG_CYAN}Encryption Algorithm:{RESET}")
+            print(f"  {FG_BLUE}1){RESET} {FG_GREEN}ChaCha20-Poly1305{RESET} {FG_WHITE}(default - fast on all CPUs){RESET}")
+            print(f"  {FG_BLUE}2){RESET} {FG_GREEN}AES-256-GCM{RESET} {FG_WHITE}(faster with AES-NI hardware){RESET}")
+            algo_choice = ask_int(f"  {BOLD}Select algorithm:{RESET}", min_=1, max_=2, default=1)
+            encryption_algorithm = "chacha" if algo_choice == 1 else "aes-gcm"
+            
             print(f"  {FG_WHITE}Note: Leave empty to use PSK as encryption key{RESET}")
             try:
                 encryption_key = input(f"  {BOLD}Encryption Key:{RESET} {FG_WHITE}(empty = use PSK){RESET} ").strip()
@@ -1530,7 +1546,7 @@ def create_server_tunnel():
         print(f"\n  {BOLD}{FG_CYAN}Server Limits:{RESET}")
         max_sessions = ask_int(f"  {BOLD}Max Sessions:{RESET} {FG_WHITE}(0 = unlimited, recommended: 0 or 1000+){RESET}", min_=0, max_=100000, default=0)
         
-        heartbeat = ask_int(f"  {BOLD}Heartbeat Interval:{RESET} {FG_WHITE}(seconds, 0 = use default 20s){RESET}", min_=0, max_=300, default=0)
+        heartbeat = ask_int(f"  {BOLD}Heartbeat Interval:{RESET} {FG_WHITE}(seconds, 0 = use default 15s){RESET}", min_=0, max_=300, default=0)
         
         print(f"\n  {BOLD}{FG_CYAN}Performance Tuning:{RESET} {FG_YELLOW}(Advanced - Optional){RESET}")
         if ask_yesno(f"  {BOLD}Configure Buffer Pool sizes?{RESET} {FG_WHITE}(for performance tuning){RESET}", default=False):
@@ -1624,6 +1640,7 @@ def create_server_tunnel():
             "heartbeat": heartbeat, 
             "buffer_pool_config": buffer_pool_config,
             "encryption_enabled": encryption_enabled,
+            "encryption_algorithm": encryption_algorithm,
             "encryption_key": encryption_key,
             "stealth_padding": stealth_padding,
             "stealth_padding_max": stealth_padding_max,
@@ -1708,9 +1725,16 @@ def create_client_tunnel():
         psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}")
         
         print(f"  {FG_WHITE}Note: Must match server settings!{RESET}")
-        encryption_enabled = ask_yesno(f"  {BOLD}Enable encryption (ChaCha20-Poly1305)?{RESET} {FG_WHITE}(anti-DPI){RESET}", default=False)
+        encryption_enabled = ask_yesno(f"  {BOLD}Enable encryption?{RESET} {FG_WHITE}(anti-DPI){RESET}", default=False)
         encryption_key = ""
+        encryption_algorithm = "chacha"
         if encryption_enabled:
+            print(f"\n  {BOLD}{FG_CYAN}Encryption Algorithm:{RESET} {FG_WHITE}(must match server!){RESET}")
+            print(f"  {FG_BLUE}1){RESET} {FG_GREEN}ChaCha20-Poly1305{RESET} {FG_WHITE}(default - fast on all CPUs){RESET}")
+            print(f"  {FG_BLUE}2){RESET} {FG_GREEN}AES-256-GCM{RESET} {FG_WHITE}(faster with AES-NI hardware){RESET}")
+            algo_choice = ask_int(f"  {BOLD}Select algorithm:{RESET}", min_=1, max_=2, default=1)
+            encryption_algorithm = "chacha" if algo_choice == 1 else "aes-gcm"
+            
             print(f"  {FG_WHITE}Note: Leave empty to use PSK as encryption key{RESET}")
             try:
                 encryption_key = input(f"  {BOLD}Encryption Key:{RESET} {FG_WHITE}(empty = use PSK){RESET} ").strip()
@@ -1801,7 +1825,7 @@ def create_client_tunnel():
         verbose = ask_yesno(f"  {BOLD}Enable verbose logging (for debugging)?{RESET}", default=False)
         
 
-        heartbeat = ask_int(f"  {BOLD}Heartbeat Interval:{RESET} {FG_WHITE}(seconds, 0 = use default 20s){RESET}", min_=0, max_=300, default=0)
+        heartbeat = ask_int(f"  {BOLD}Heartbeat Interval:{RESET} {FG_WHITE}(seconds, 0 = use default 15s){RESET}", min_=0, max_=300, default=0)
         
         print(f"\n  {BOLD}{FG_CYAN}Performance Tuning:{RESET} {FG_YELLOW}(Advanced - Optional){RESET}")
         if ask_yesno(f"  {BOLD}Configure Buffer Pool sizes?{RESET} {FG_WHITE}(for performance tuning){RESET}", default=False):
@@ -1875,6 +1899,7 @@ def create_client_tunnel():
             "heartbeat": heartbeat,
             "buffer_pool_config": buffer_pool_config,
             "encryption_enabled": encryption_enabled,
+            "encryption_algorithm": encryption_algorithm,
             "encryption_key": encryption_key,
             "stealth_padding": stealth_padding,
             "stealth_padding_max": stealth_padding_max,
@@ -2973,7 +2998,7 @@ def main_menu():
         print(f"{BOLD}{FG_CYAN}    ██║ ╚████║███████╗   ██║   ██║  ██║██║██╔╝ ██╗{RESET}")
         print(f"{BOLD}{FG_CYAN}    ╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝{RESET}")
         print(f"{BOLD}{FG_CYAN}{'=' * 60}{RESET}")
-        print(f"{FG_WHITE}    Tunnel Management Script{RESET}")
+        print(f"{FG_WHITE}    Tunnel Management Script          {FG_YELLOW}v{VERSION}{RESET}")
         
         core_installed = os.path.exists(NETRIX_BINARY)
         if core_installed:
@@ -3026,4 +3051,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
