@@ -18,8 +18,8 @@ VERSION = "2.0.3"
 ROOT_DIR = Path("/root")
 NETRIX_BINARY = "/usr/local/bin/netrix"
 NETRIX_RELEASE_URLS = {
-    "amd64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.2/netrix-amd64.tar.gz",
-    "arm64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.2/netrix-arm64.tar.gz"
+    "amd64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.3/netrix-amd64.tar.gz",
+    "arm64": "https://github.com/Karrari-Dev/Netrix-/releases/download/v2.0.3/netrix-arm64.tar.gz"
 }
 
 FG_BLACK = "\033[30m"
@@ -2630,6 +2630,135 @@ def install_netrix_core():
     except UserCancelled:
         return
 
+def install_netrix_core_auto():
+    """نصب/Reinstall خودکار هسته Netrix بدون سوال (برای update)"""
+    try:
+        print(f"  {FG_CYAN}Detecting system architecture...{RESET}")
+        arch = platform.machine().lower()
+        
+        arch_map = {
+            "x86_64": "amd64",
+            "amd64": "amd64",
+            "aarch64": "arm64",
+            "arm64": "arm64",
+            "armv7l": "arm",
+            "armv6l": "arm"
+        }
+        
+        go_arch = arch_map.get(arch, "amd64")
+        print(f"  {BOLD}Architecture:{RESET} {FG_GREEN}{arch} {FG_WHITE}({go_arch}){RESET}")
+        
+        download_url = NETRIX_RELEASE_URLS.get(go_arch)
+        if not download_url:
+            c_err(f"  ❌ Unsupported architecture: {go_arch}")
+            c_warn(f"  Supported: amd64 (x86_64), arm64 (aarch64)")
+            return False
+        
+        print(f"\n  {BOLD}{FG_CYAN}Download URL:{RESET} {FG_GREEN}{download_url}{RESET}")
+        
+        print(f"\n  {FG_CYAN}Downloading Netrix Core...{RESET}")
+        temp_file = Path("/tmp/netrix.tar.gz")
+        temp_dir = Path("/tmp/netrix_extract")
+        
+        try:
+            print(f"  {FG_CYAN}⏳ Downloading...{RESET}")
+            req = urllib.request.Request(download_url)
+            req.add_header("User-Agent", "Netrix-Installer/1.0")
+            with urllib.request.urlopen(req, timeout=60) as response:
+                with open(temp_file, 'wb') as f:
+                    shutil.copyfileobj(response, f)
+            
+            file_size = temp_file.stat().st_size
+            if file_size < 1024:
+                raise Exception("Downloaded file is too small, may be corrupted")
+            
+            c_ok(f"  ✅ Download completed {FG_WHITE}({file_size / 1024 / 1024:.2f} MB){RESET}")
+        except urllib.error.URLError as e:
+            c_err(f"  ❌ Failed to download: {FG_RED}Network error - {str(e)}{RESET}")
+            if temp_file.exists():
+                temp_file.unlink()
+            return False
+        except Exception as e:
+            c_err(f"  ❌ Failed to download: {FG_RED}{str(e)}{RESET}")
+            if temp_file.exists():
+                temp_file.unlink()
+            return False
+        
+        print(f"\n  {FG_CYAN}Extracting archive...{RESET}")
+        try:
+            import tarfile
+            
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            with tarfile.open(temp_file, 'r:gz') as tar:
+                tar.extractall(temp_dir)
+            
+            c_ok(f"  ✅ Archive extracted")
+            
+            netrix_file = None
+            for file in temp_dir.rglob("netrix"):
+                if file.is_file():
+                    netrix_file = file
+                    break
+            
+            if not netrix_file:
+                raise Exception("netrix binary not found in archive")
+            
+        except Exception as e:
+            c_err(f"  ❌ Failed to extract: {FG_RED}{str(e)}{RESET}")
+            if temp_file.exists():
+                temp_file.unlink()
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+            return False
+
+        print(f"\n  {FG_CYAN}Installing Netrix Core to {NETRIX_BINARY}...{RESET}")
+        try:
+            binary_dir = Path(NETRIX_BINARY).parent
+            binary_dir.mkdir(parents=True, exist_ok=True)
+            
+            if Path(NETRIX_BINARY).exists():
+                backup_file = Path(f"{NETRIX_BINARY}.backup")
+                shutil.copy(NETRIX_BINARY, backup_file)
+                print(f"  {FG_YELLOW}Old version backed up to: {backup_file}{RESET}")
+            
+            shutil.copy(netrix_file, NETRIX_BINARY)
+            
+            os.chmod(NETRIX_BINARY, 0o755)
+            
+            temp_file.unlink()
+            shutil.rmtree(temp_dir)
+            
+            c_ok(f"  ✅ Netrix Core installed successfully!")
+            c_ok(f"  ✅ Binary location: {FG_GREEN}{NETRIX_BINARY}{RESET}")
+            
+        except Exception as e:
+            c_err(f"  ❌ Failed to install: {FG_RED}{str(e)}{RESET}")
+            if temp_file.exists():
+                temp_file.unlink()
+            return False
+        
+        print(f"\n  {FG_CYAN}Verifying installation...{RESET}")
+        try:
+            result = subprocess.run([NETRIX_BINARY, "-version"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                print(f"  {BOLD}Version Info:{RESET}")
+                print(f"  {FG_GREEN}{result.stdout}{RESET}")
+                c_ok("  ✅ Installation verified successfully!")
+                return True
+            else:
+                c_warn("  ⚠️  Could not verify version, but installation completed.")
+                return True
+        except Exception as e:
+            c_warn(f"  ⚠️  Could not verify installation: {str(e)}")
+            return True
+        
+    except Exception as e:
+        c_err(f"  ❌ Installation failed: {FG_RED}{str(e)}{RESET}")
+        return False
+
 def update_netrix_core():
     """آپدیت هسته Netrix"""
     try:
@@ -2681,10 +2810,13 @@ def update_netrix_core():
         else:
             print(f"  {FG_WHITE}No active tunnels to stop.{RESET}")
         
-        install_netrix_core()
+        # Fix: اتومات reinstall کنه بدون سوال
+        print(f"\n  {FG_CYAN}Installing updated core...{RESET}")
+        install_netrix_core_auto()
         
-        if stopped_count > 0 and ask_yesno(f"\n  {BOLD}Restart previously active tunnels?{RESET}", default=True):
-            print(f"\n  {FG_CYAN}Restarting tunnels...{RESET}")
+        # Fix: اتومات restart کنه تانل‌ها رو بدون سوال
+        if stopped_count > 0:
+            print(f"\n  {FG_CYAN}Restarting previously active tunnels...{RESET}")
             restarted_count = 0
             for config_path in stopped_tunnels:
                 service_name = f"netrix-{config_path.stem}"
