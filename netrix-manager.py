@@ -2810,38 +2810,43 @@ def update_netrix_core():
         else:
             print(f"  {FG_WHITE}No active tunnels to stop.{RESET}")
         
-        # Fix: اتومات reinstall کنه بدون سوال
         print(f"\n  {FG_CYAN}Installing updated core...{RESET}")
         install_netrix_core_auto()
         
-        # Fix: اتومات restart کنه تانل‌ها رو بدون سوال
         if stopped_count > 0:
             print(f"\n  {FG_CYAN}Restarting previously active tunnels...{RESET}")
             restarted_count = 0
+            failed_tunnels = []
             for config_path in stopped_tunnels:
                 service_name = f"netrix-{config_path.stem}"
+                service_path = Path(f"/etc/systemd/system/{service_name}.service")
+                
+                if not service_path.exists():
+                    print(f"  {FG_YELLOW}⚠️  Service for {config_path.name} not found, recreating...{RESET}")
+                    if not create_systemd_service_for_tunnel(config_path):
+                        print(f"  {FG_RED}❌ Failed to create service for {config_path.name}{RESET}")
+                        failed_tunnels.append(config_path.name)
+                        continue
+                    try:
+                        subprocess.run(["systemctl", "enable", service_name], check=False, timeout=5, capture_output=True)
+                    except:
+                        pass
+                
                 print(f"  {FG_CYAN}Restarting {config_path.name}...{RESET}", end='', flush=True)
-                try:
-                    result = subprocess.run(
-                        ["systemctl", "restart", service_name],
-                        check=False,
-                        capture_output=True,
-                        timeout=15
-                    )
-                    if result.returncode == 0:
-                        print(f" {FG_GREEN}✅{RESET}")
-                        restarted_count += 1
-                    else:
-                        print(f" {FG_YELLOW}⚠️{RESET}")
-                except subprocess.TimeoutExpired:
-                    print(f" {FG_YELLOW}⚠️{RESET} (timeout)")
-                except:
+                if restart_tunnel(config_path):
+                    print(f" {FG_GREEN}✅{RESET}")
+                    restarted_count += 1
+                else:
                     print(f" {FG_YELLOW}⚠️{RESET}")
+                    failed_tunnels.append(config_path.name)
             
             if restarted_count > 0:
                 c_ok(f"  ✅ Restarted {restarted_count} tunnel(s)")
-            else:
-                c_warn("  ⚠️  No tunnels were restarted (check logs)")
+            if failed_tunnels:
+                c_warn(f"  ⚠️  Failed to restart {len(failed_tunnels)} tunnel(s): {', '.join(failed_tunnels)}")
+                c_warn("  ⚠️  You may need to manually restart them or check service status")
+            if restarted_count == 0 and stopped_count > 0:
+                c_warn("  ⚠️  No tunnels were restarted (check logs and service status)")
         
     except UserCancelled:
         return
