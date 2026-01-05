@@ -13,9 +13,10 @@ except ImportError:
     sys.exit(1)
 
 # ========== Version ==========
-VERSION = "2.0.3"
+VERSION = "2.0.4"
 
 ROOT_DIR = Path("/root")
+NETRIX_CONFIG_DIR = ROOT_DIR / "netrix"
 NETRIX_BINARY = "/usr/local/bin/netrix"
 NETRIX_RELEASE_URLS = {
     "amd64": f"https://github.com/Karrari-Dev/Netrix-/releases/download/v{VERSION}/netrix-amd64.tar.gz",
@@ -30,8 +31,39 @@ FG_BLUE = "\033[34m"
 FG_MAGENTA = "\033[35m"
 FG_CYAN = "\033[36m"
 FG_WHITE = "\033[37m"
+
+BG_BLACK = "\033[40m"
+BG_RED = "\033[41m"
+BG_GREEN = "\033[42m"
+BG_YELLOW = "\033[43m"
+BG_BLUE = "\033[44m"
+BG_MAGENTA = "\033[45m"
+BG_CYAN = "\033[46m"
+BG_WHITE = "\033[47m"
+BG_BRIGHT_RED = "\033[101m"
+BG_BRIGHT_GREEN = "\033[102m"
+BG_BRIGHT_YELLOW = "\033[103m"
+BG_BRIGHT_BLUE = "\033[104m"
+BG_BRIGHT_MAGENTA = "\033[105m"
+BG_BRIGHT_CYAN = "\033[106m"
+BG_BRIGHT_WHITE = "\033[107m"
+
 BOLD = "\033[1m"
+DIM = "\033[2m"
+ITALIC = "\033[3m"
+UNDERLINE = "\033[4m"
+BLINK = "\033[5m"
+REVERSE = "\033[7m"
+STRIKETHROUGH = "\033[9m"
 RESET = "\033[0m"
+
+THEME_PRIMARY = FG_CYAN
+THEME_SECONDARY = FG_BLUE
+THEME_SUCCESS = FG_GREEN
+THEME_WARNING = FG_YELLOW
+THEME_ERROR = FG_RED
+THEME_INFO = FG_MAGENTA
+THEME_BG = THEME_BG_LIGHT = BG_BLACK
 
 # ========== Utils ==========
 
@@ -92,6 +124,47 @@ def is_ipv6_available() -> bool:
             return False
     except (socket.error, OSError):
         return False
+
+def get_server_ip() -> Optional[str]:
+    """دریافت IP سرور (IPv4) - ابتدا IP عمومی، سپس IP محلی"""
+    try:
+        try:
+            with urllib.request.urlopen("https://api.ipify.org", timeout=3) as response:
+                public_ip = response.read().decode().strip()
+                if public_ip and '.' in public_ip:
+                    return public_ip
+        except Exception:
+            pass
+        
+        try:
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+            if local_ip and local_ip != "127.0.0.1":
+                return local_ip
+        except Exception:
+            pass
+        
+        try:
+            result = subprocess.run(
+                ["ip", "-4", "addr", "show"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if 'inet ' in line and '127.0.0.1' not in line:
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            ip = parts[1].split('/')[0]
+                            if ip and '.' in ip:
+                                return ip
+        except Exception:
+            pass
+        
+        return None
+    except Exception:
+        return None
 
 def ask_int(prompt, min_=1, max_=65535, default=None):
     while True:
@@ -183,6 +256,164 @@ def parse_ports(ports_str: str) -> List[int]:
     
     return sorted(list(set(ports)))
 
+def parse_advanced_ports(ports_str: str, protocol: str = "tcp") -> List[Dict[str, str]]:
+    """
+    Parse port mapping string into Netrix map format
+    
+    Supports:
+    - Single port: 500
+    - Port range: 500-567
+    - Multiple ports: 500,555,666
+    - Bind to specific IP: 12.12.12.12:666
+    - Redirect to different port: 4000=5000
+    - Range redirect to port: 443-600:5201
+    - Range redirect to IP:port: 443-600=1.1.1.1:5201
+    - Full specification: 127.0.0.2:443=1.1.1.1:5201
+    """
+    maps = []
+    parts = [p.strip() for p in ports_str.split(',')]
+    
+    for part in parts:
+        if not part:
+            continue
+            
+        bind_part = part
+        target_part = None
+        
+        if '=' in part:
+            bind_part, target_part = part.split('=', 1)
+            bind_part = bind_part.strip()
+            target_part = target_part.strip()
+        elif ':' in part:
+            last_colon_idx = part.rfind(':')
+            after_colon = part[last_colon_idx + 1:].strip()
+            
+            try:
+                test_port = int(after_colon)
+                if 1 <= test_port <= 65535:
+                    before_colon = part[:last_colon_idx].strip()
+                    
+                    if before_colon.replace('-', '').replace('.', '').isdigit() and '.' not in before_colon:
+                        bind_part = before_colon
+                        target_part = after_colon
+                    elif not any(before_colon.startswith(prefix) for prefix in ['127.', '192.', '10.', '172.', '0.0.0.0', '::', '[::']):
+                        if '-' in before_colon or before_colon.isdigit():
+                            bind_part = before_colon
+                            target_part = after_colon
+            except ValueError:
+                pass
+        
+        bind_ip = "0.0.0.0"
+        bind_port_start = None
+        bind_port_end = None
+        
+        if ':' in bind_part:
+            bind_ip_part, bind_port_part = bind_part.rsplit(':', 1)
+            bind_ip = bind_ip_part.strip()
+            bind_port_str = bind_port_part.strip()
+            
+            if '-' in bind_port_str:
+                start_str, end_str = bind_port_str.split('-', 1)
+                bind_port_start = int(start_str.strip())
+                bind_port_end = int(end_str.strip())
+            else:
+                bind_port_start = int(bind_port_str)
+                bind_port_end = bind_port_start
+        else:
+            if '-' in bind_part:
+                start_str, end_str = bind_part.split('-', 1)
+                bind_port_start = int(start_str.strip())
+                bind_port_end = int(end_str.strip())
+            else:
+                bind_port_start = int(bind_part)
+                bind_port_end = bind_port_start
+        
+        if bind_port_start < 1 or bind_port_start > 65535 or bind_port_end < 1 or bind_port_end > 65535:
+            raise ValueError(f"Port out of range: {bind_part}")
+        if bind_port_start > bind_port_end:
+            raise ValueError(f"Start port must be <= end port: {bind_part}")
+        
+        target_ip = "127.0.0.1"
+        target_port = None
+        
+        if target_part:
+            if ':' in target_part:
+                target_ip, target_port_str = target_part.rsplit(':', 1)
+                target_ip = target_ip.strip()
+                target_port = int(target_port_str.strip())
+            else:
+                target_port = int(target_part.strip())
+        else:
+            target_port = bind_port_start
+        
+        if target_port < 1 or target_port > 65535:
+            raise ValueError(f"Target port out of range: {target_part or bind_port_start}")
+        
+        for port in range(bind_port_start, bind_port_end + 1):
+            if bind_port_start != bind_port_end and target_part and ':' not in target_part:
+                final_target_port = target_port
+            else:
+                final_target_port = target_port if bind_port_start == bind_port_end else port
+            
+            maps.append({
+                "type": protocol,
+                "bind": f"{bind_ip}:{port}",
+                "target": f"{target_ip}:{final_target_port}"
+            })
+    
+    return maps
+
+def compact_maps(maps: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """
+    Compact maps by merging consecutive ports with same IP and target
+    Example: [500,501,502] -> [500-502]
+    """
+    if not maps:
+        return []
+    
+    grouped = {}
+    for m in maps:
+        key = (m['type'], m['bind'].split(':')[0], m['target'])
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(m)
+    
+    compacted = []
+    for key, group in grouped.items():
+        protocol, bind_ip, target = key
+        
+        group.sort(key=lambda x: int(x['bind'].split(':')[1]))
+        
+        i = 0
+        while i < len(group):
+            start_port = int(group[i]['bind'].split(':')[1])
+            end_port = start_port
+            
+            j = i + 1
+            while j < len(group):
+                current_port = int(group[j]['bind'].split(':')[1])
+                expected_port = int(group[j-1]['bind'].split(':')[1]) + 1
+                if current_port == expected_port:
+                    end_port = current_port
+                    j += 1
+                else:
+                    break
+            
+            if start_port == end_port:
+                bind = f"{bind_ip}:{start_port}"
+            else:
+                bind = f"{bind_ip}:{start_port}-{end_port}"
+            
+            compacted.append({
+                "type": protocol,
+                "bind": bind,
+                "target": target
+            })
+            
+            i = j
+    
+    return compacted
+
 def configure_buffer_pools() -> dict:
     """تنظیم Buffer Pool sizes برای performance tuning"""
     config = {}
@@ -200,14 +431,14 @@ def configure_buffer_pools() -> dict:
     config["buffer_pool_size"] = buffer_pool_size
     
     large_buffer_pool_size = ask_int(
-        f"  {BOLD}Large Buffer Pool Size:{RESET} {FG_WHITE}(bytes, default: 65536 = 64KB, 0 = use default){RESET}",
+        f"  {BOLD}Large Buffer Pool Size:{RESET} {FG_WHITE}(bytes, default: 65791, 0 = use default){RESET}",
         min_=0,
         default=0
     )
     config["large_buffer_pool_size"] = large_buffer_pool_size
     
     udp_frame_pool_size = ask_int(
-        f"  {BOLD}UDP Frame Pool Size:{RESET} {FG_WHITE}(bytes, default: 32768 = 32KB, 0 = use default){RESET}",
+        f"  {BOLD}UDP Frame Pool Size:{RESET} {FG_WHITE}(bytes, default: 65791, 0 = use default){RESET}",
         min_=0,
         default=0
     )
@@ -228,39 +459,44 @@ def configure_buffer_pools() -> dict:
 
 # ========== Config File Management ==========
 def get_config_path(tport: int) -> Path:
-    """مسیر فایل کانفیگ YAML در /root"""
-    return ROOT_DIR / f"server{tport}.yaml"
+    """مسیر فایل کانفیگ YAML در /root/netrix"""
+    NETRIX_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    return NETRIX_CONFIG_DIR / f"server_{tport}.yaml"
 
 def get_default_smux_config(profile: str = "balanced") -> dict:
     """تنظیمات پیش‌فرض SMUX بر اساس profile - همگام با netrix.go"""
     profiles = {
         "balanced": {
             "keepalive": 20,   
-            "max_recv": 4194304,  
-            "max_stream": 2097152, 
-            "frame_size": 32768,   
-            "version": 2
+            "max_recv": 4194304,
+            "max_stream": 2097152,
+            "frame_size": 32768,  
+            "version": 2,
+            "mux_con": 8  
         },
         "aggressive": {
             "keepalive": 30,     
-            "max_recv": 8388608, 
-            "max_stream": 4194304,
-            "frame_size": 65535,  
-            "version": 2
+            "max_recv": 8388608,  
+            "max_stream": 4194304,  
+            "frame_size": 65535, 
+            "version": 2,
+            "mux_con": 16 
         },
         "latency": {
             "keepalive": 5,       
-            "max_recv": 2097152,   
-            "max_stream": 1048576, 
-            "frame_size": 16384,   
-            "version": 2
+            "max_recv": 2097152,  
+            "max_stream": 1048576,  
+            "frame_size": 16384,  
+            "version": 2,
+            "mux_con": 4  
         },
         "cpu-efficient": {
             "keepalive": 60,      
-            "max_recv": 2097152,   
-            "max_stream": 1048576,
-            "frame_size": 16384,  
-            "version": 2
+            "max_recv": 2097152, 
+            "max_stream": 1048576,  
+            "frame_size": 16384, 
+            "version": 2,
+            "mux_con": 4 
         }
     }
     return profiles.get(profile.lower(), profiles["balanced"])
@@ -321,7 +557,7 @@ def get_default_advanced_config(transport: str) -> dict:
         "max_connections": 0,    
         "max_udp_flows": 5000,        
         "udp_flow_timeout": 600,    
-        "tls_insecure_skip_verify": True,  
+        "tls_insecure_skip_verify": False, 
         "verbose": False
     }
     
@@ -505,7 +741,14 @@ def write_yaml_with_comments(file_path: Path, data: dict, comments: dict = None)
                 write_dict(value, indent + 1, full_key)
             elif isinstance(value, list):
                 if value and all(isinstance(item, (int, str, float)) and not isinstance(item, dict) for item in value):
-                    inline_list = "[" + ",".join(str(item) for item in value) + "]"
+                    formatted_items = []
+                    for item in value:
+                        if isinstance(item, str):
+                            escaped = item.replace('"', '\\"')
+                            formatted_items.append(f'"{escaped}"')
+                        else:
+                            formatted_items.append(str(item))
+                    inline_list = "[" + ",".join(formatted_items) + "]"
                     if comment:
                         lines.append(f"{'  ' * indent}{key}: {inline_list}  # {comment}")
                     else:
@@ -645,19 +888,41 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         yaml_data["heartbeat"] = cfg['heartbeat']
     
     if cfg.get('maps'):
-        tcp_ports = []
-        udp_ports = []
-        for m in cfg['maps']:
-            port = int(m['bind'].split(':')[-1])
-            if m['type'] == 'tcp':
-                tcp_ports.append(port)
-            elif m['type'] == 'udp':
-                udp_ports.append(port)
+        tcp_ports_list = []
+        udp_ports_list = []
         
-        if tcp_ports:
-            yaml_data["tcp_ports"] = tcp_ports
-        if udp_ports:
-            yaml_data["udp_ports"] = udp_ports
+        for m in cfg['maps']:
+            protocol = m.get('type', 'tcp')
+            bind_parts = m['bind'].split(':')
+            target_parts = m['target'].split(':')
+            if len(bind_parts) == 2 and len(target_parts) == 2:
+                bind_ip = bind_parts[0]
+                bind_port = bind_parts[1]
+                target_ip = target_parts[0]
+                target_port = target_parts[1]
+                
+                port_str = ""
+                if bind_ip == "0.0.0.0" and target_ip == "127.0.0.1" and bind_port == target_port:
+                    port_str = bind_port
+                elif bind_ip == "0.0.0.0" and target_ip == "127.0.0.1" and bind_port != target_port:
+                    port_str = f"{bind_port}={target_port}"
+                elif bind_ip != "0.0.0.0" or target_ip != "127.0.0.1":
+                    if bind_ip == "0.0.0.0":
+                        port_str = f"{bind_port}={target_ip}:{target_port}"
+                    else:
+                        port_str = f"{bind_ip}:{bind_port}={target_ip}:{target_port}"
+                else:
+                    port_str = f"{m['bind']}={m['target']}"
+                
+                if protocol == "tcp":
+                    tcp_ports_list.append(port_str)
+                elif protocol == "udp":
+                    udp_ports_list.append(port_str)
+        
+        if tcp_ports_list:
+            yaml_data["tcp_ports"] = tcp_ports_list
+        if udp_ports_list:
+            yaml_data["udp_ports"] = udp_ports_list
     
     tun_cfg = cfg.get("tun_config") or {}
     yaml_data["tun"] = {
@@ -666,10 +931,21 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "local": tun_cfg.get("local", "10.200.0.1/30"),
         "mtu": tun_cfg.get("mtu", 1400),
         "routes": tun_cfg.get("routes", []),
+        "streams": tun_cfg.get("streams", 1),
         "forward_l2tp": tun_cfg.get("forward_l2tp", False),
-        "l2tp_ports": tun_cfg.get("l2tp_ports", [500, 4500, 1701]),
+        "l2tp_ports": tun_cfg.get("l2tp_ports", [500,4500,1701]),
         "l2tp_dest_ip": tun_cfg.get("l2tp_dest_ip", ""),
     }
+    
+    if cfg.get("proxy_protocol_enabled", False):
+        proxy_config = {
+            "enabled": True,
+            "version": cfg.get("proxy_protocol_version", "v1")
+        }
+        proxy_ports = cfg.get("proxy_protocol_ports", [])
+        if proxy_ports:
+            proxy_config["port_list"] = proxy_ports
+        yaml_data["proxy_protocol"] = proxy_config
 
     comments = {
         "profile": f"Performance profile (default: balanced)",
@@ -690,10 +966,10 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "advanced.max_connections": f"Max concurrent connections (default: 0 = use 5M limit, practically unlimited)",
         "advanced.max_udp_flows": f"Max UDP flows (default: 100000 for 10K+ users)",
         "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 7200 = 2 hours)",
-        "advanced.tls_insecure_skip_verify": f"Skip TLS certificate verification (default: true for self-signed certs)",
+        "advanced.tls_insecure_skip_verify": f"Skip TLS certificate verification (default: false - secure by default, can be enabled for self-signed certs)",
         "advanced.buffer_pool_size": f"Buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
-        "advanced.large_buffer_pool_size": f"Large buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
-        "advanced.udp_frame_pool_size": f"UDP frame pool size in bytes (default: 32768 = 32KB, 0 = use default, configurable)",
+        "advanced.large_buffer_pool_size": f"Large buffer pool size in bytes (default: 65791 = maxUDPDataLen+256, 0 = use default, configurable)",
+        "advanced.udp_frame_pool_size": f"UDP frame pool size in bytes (default: 65791 = maxUDPDataLen+256, 0 = use default, configurable)",
         "advanced.udp_data_slice_size": f"UDP data slice size in bytes (default: 1500 = MTU, 0 = use default, configurable)",
         "heartbeat": f"Heartbeat interval in seconds (default: 15, 0 = use default)",
         "verbose": f"Verbose logging (default: false)",
@@ -711,9 +987,12 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "tun.local": "Local IP address with CIDR (e.g., 10.200.0.1/30)",
         "tun.mtu": "MTU size (default: 1400)",
         "tun.routes": "Networks to route through TUN",
+        "tun.streams": "Number of parallel TUN streams (1-64, default: 1) - higher = better throughput",
         "tun.forward_l2tp": "Auto-add iptables DNAT rules for L2TP/IPsec ports (500,4500,1701) on server",
         "tun.l2tp_ports": "List of UDP ports to auto-forward for L2TP/IPsec (default: [500, 4500, 1701])",
         "tun.l2tp_dest_ip": "Optional DNAT destination IP for L2TP/IPsec (empty = use tun.local IP)",
+        "tcp_ports": "TCP port mappings (string format like backhole: [\"443\", \"4000=5000\", \"500-567\"])",
+        "udp_ports": "UDP port mappings (string format like backhole: [\"500-567\", \"4500\"])",
     }
     
     if transport == "kcpmux":
@@ -739,13 +1018,19 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
 
 def create_client_config_file(cfg: dict) -> Path:
     """ساخت فایل کانفیگ YAML برای کلاینت"""
+    NETRIX_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    
     tport = cfg.get('tport', 0)
     if not tport:
         paths = cfg.get('paths', [])
         if paths:
             addr = paths[0].get('addr', '')
             tport = addr.split(':')[-1] if ':' in addr else '0'
-    config_path = ROOT_DIR / f"client{tport}.yaml"
+    
+    if tport and tport != '0':
+        config_path = NETRIX_CONFIG_DIR / f"client_{tport}.yaml"
+    else:
+        config_path = NETRIX_CONFIG_DIR / "client.yaml"
     
     profile = cfg.get('profile', 'balanced')
     
@@ -787,7 +1072,7 @@ def create_client_config_file(cfg: dict) -> Path:
         "max_stream": smux_default["max_stream"],
         "frame_size": smux_default["frame_size"],
         "version": smux_default["version"],
-        "mux_con": cfg.get('mux_con', 10)
+        "mux_con": cfg.get('mux_con', smux_default.get("mux_con", 8))  # Fix: استفاده از mux_con از profile
     }
     
     if any(p.get('transport') == 'kcpmux' for p in paths):
@@ -807,6 +1092,9 @@ def create_client_config_file(cfg: dict) -> Path:
     for key, value in advanced_default.items():
         if key != "verbose":
             yaml_data["advanced"][key] = value
+    
+    if "tls_insecure_skip_verify" in cfg:
+        yaml_data["advanced"]["tls_insecure_skip_verify"] = cfg["tls_insecure_skip_verify"]
     
     yaml_data["verbose"] = cfg.get("verbose", False)
     
@@ -847,8 +1135,19 @@ def create_client_config_file(cfg: dict) -> Path:
         "name": tun_cfg.get("name", "netrix0"),
         "local": tun_cfg.get("local", "10.200.0.2/30"),
         "mtu": tun_cfg.get("mtu", 1400),
-        "routes": tun_cfg.get("routes", [])
+        "routes": tun_cfg.get("routes", []),
+        "streams": tun_cfg.get("streams", 1)
     }
+    
+    if cfg.get("proxy_protocol_enabled", False):
+        proxy_config = {
+            "enabled": True,
+            "version": cfg.get("proxy_protocol_version", "v1")
+        }
+        proxy_ports = cfg.get("proxy_protocol_ports", [])
+        if proxy_ports:
+            proxy_config["port_list"] = proxy_ports
+        yaml_data["proxy_protocol"] = proxy_config
 
     comments = {
         "profile": f"Performance profile (default: balanced)",
@@ -857,7 +1156,7 @@ def create_client_config_file(cfg: dict) -> Path:
         "smux.max_stream": f"Max stream buffer in bytes (default: {smux_default['max_stream']} = 2MB)",
         "smux.frame_size": f"Frame size in bytes (default: {smux_default['frame_size']} = 32KB)",
         "smux.version": f"SMUX version (default: {smux_default['version']})",
-        "smux.mux_con": f"Number of multiplexed connections (default: 10)",
+        "smux.mux_con": f"Number of multiplexed connections (default: from profile - balanced=8, aggressive=16, latency=4, cpu-efficient=4)",
         "advanced.tcp_nodelay": f"TCP NoDelay (default: true)",
         "advanced.tcp_keepalive": f"TCP KeepAlive in seconds (default: 30)",
         "advanced.tcp_read_buffer": f"TCP read buffer in bytes (default: 8388608 = 8MB)",
@@ -870,10 +1169,10 @@ def create_client_config_file(cfg: dict) -> Path:
         "advanced.max_connections": f"Max concurrent connections (default: 0 = use 5M limit, practically unlimited)",
         "advanced.max_udp_flows": f"Max UDP flows (default: 100000 for 10K+ users)",
         "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 7200 = 2 hours)",
-        "advanced.tls_insecure_skip_verify": f"Skip TLS certificate verification (default: true for self-signed certs)",
+        "advanced.tls_insecure_skip_verify": f"Skip TLS certificate verification (default: false - secure by default, can be enabled for self-signed certs)",
         "advanced.buffer_pool_size": f"Buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
-        "advanced.large_buffer_pool_size": f"Large buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
-        "advanced.udp_frame_pool_size": f"UDP frame pool size in bytes (default: 32768 = 32KB, 0 = use default, configurable)",
+        "advanced.large_buffer_pool_size": f"Large buffer pool size in bytes (default: 65791 = maxUDPDataLen+256, 0 = use default, configurable)",
+        "advanced.udp_frame_pool_size": f"UDP frame pool size in bytes (default: 65791 = maxUDPDataLen+256, 0 = use default, configurable)",
         "advanced.udp_data_slice_size": f"UDP data slice size in bytes (default: 1500 = MTU, 0 = use default, configurable)",
         "heartbeat": f"Heartbeat interval in seconds (default: 15, 0 = use default)",
         "verbose": f"Verbose logging (default: false)",
@@ -891,6 +1190,9 @@ def create_client_config_file(cfg: dict) -> Path:
         "tun.local": "Local IP address with CIDR (e.g., 10.200.0.2/30)",
         "tun.mtu": "MTU size (default: 1400)",
         "tun.routes": "Networks to route through TUN",
+        "tun.streams": "Number of parallel TUN streams (1-64, default: 1) - higher = better throughput",
+        "proxy_protocol.enabled": "Enable PROXY Protocol (forwards real client IP to backend services) - must match server settings",
+        "proxy_protocol.version": "PROXY Protocol version: 'v1' (text-based) or 'v2' (binary, default: v1) - must match server settings",
     }
     
     if any(p.get('transport') == 'kcpmux' for p in paths):
@@ -968,7 +1270,13 @@ def list_tunnels() -> List[Dict[str,Any]]:
     """لیست تمام تانل‌ها از فایل‌های YAML"""
     items = []
     
-    for config_file in ROOT_DIR.glob("server*.yaml"):
+    NETRIX_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    
+    config_files_new = list(NETRIX_CONFIG_DIR.glob("server_*.yaml"))
+    config_files_old = list(ROOT_DIR.glob("server*.yaml"))
+    all_config_files = list(set(config_files_new + config_files_old))
+    
+    for config_file in all_config_files:
         try:
             cfg = parse_yaml_config(config_file)
             if not cfg or cfg.get('mode') != 'server':
@@ -995,7 +1303,11 @@ def list_tunnels() -> List[Dict[str,Any]]:
         except Exception:
             continue
     
-    for config_file in ROOT_DIR.glob("client*.yaml"):
+    client_files_new = list(NETRIX_CONFIG_DIR.glob("client*.yaml"))
+    client_files_old = list(ROOT_DIR.glob("client*.yaml"))
+    all_client_files = list(set(client_files_new + client_files_old))
+    
+    for config_file in all_client_files:
         try:
             cfg = parse_yaml_config(config_file)
             if not cfg or cfg.get('mode') != 'client':
@@ -1356,17 +1668,17 @@ def start_configure_menu():
     while True:
         clear()
         print(f"{BOLD}{FG_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-        print(f"{BOLD}{FG_CYAN}║{RESET}                      {BOLD}Create Tunnel{RESET}                       {BOLD}{FG_CYAN}║{RESET}")
+        print(f"{BOLD}{FG_CYAN}║{RESET}                      {BOLD}Create New Tunnel{RESET}                       {BOLD}{FG_CYAN}║{RESET}")
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
-        
         print(f"  {BOLD}{FG_GREEN}1){RESET} Iran Server")
         print(f"  {BOLD}{FG_BLUE}2){RESET} Kharej Client")
+        print()
         print(f"  {FG_WHITE}0){RESET} Back")
         print()
         
         try:
-            choice = input("> ").strip()
+            choice = input(f"  {BOLD}{FG_CYAN}> {RESET}").strip()
         except KeyboardInterrupt:
             print("\n")
             return
@@ -1459,6 +1771,10 @@ def create_server_tunnel():
         encryption_enabled = ask_yesno(f"  {BOLD}Enable encryption?{RESET} {FG_WHITE}(anti-DPI){RESET}", default=False)
         encryption_key = ""
         encryption_algorithm = "chacha"
+        stealth_padding = False
+        stealth_padding_max = 0
+        stealth_jitter = False
+        
         if encryption_enabled:
             print(f"\n  {BOLD}{FG_CYAN}Encryption Algorithm:{RESET}")
             print(f"  {FG_BLUE}1){RESET} {FG_GREEN}ChaCha20-Poly1305{RESET} {FG_WHITE}(default - fast on all CPUs){RESET}")
@@ -1472,7 +1788,7 @@ def create_server_tunnel():
             except KeyboardInterrupt:
                 print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
                 raise UserCancelled()
-        
+            
         print(f"\n  {BOLD}{FG_CYAN}Performance Profiles:{RESET}")
         print(f"  {FG_BLUE}1){RESET} {FG_GREEN}balanced{RESET} {FG_WHITE}(default - best overall){RESET}")
         print(f"  {FG_BLUE}2){RESET} {FG_GREEN}aggressive{RESET} {FG_WHITE}(high throughput, more CPU){RESET}")
@@ -1483,23 +1799,31 @@ def create_server_tunnel():
         profile = profiles[profile_choice]
         
         maps = []
-        print(f"\n  {BOLD}{FG_CYAN}Port Mappings:{RESET} {FG_WHITE}(e.g., 2066,9988 or 2066-2070 | Press Enter to skip){RESET}")
+        print(f"\n  {BOLD}{FG_CYAN}Port Mappings:{RESET} {FG_WHITE}(Press Enter to skip){RESET}")
+        print(f"\n  {BOLD}{FG_CYAN}Supported Formats:{RESET}")
+        print(f"  {FG_RED}Single Port:{RESET} {FG_WHITE}500{RESET}")
+        print(f"  {FG_RED}Port Range:{RESET} {FG_WHITE}500-567{RESET}")
+        print(f"  {FG_RED}Multiple Ports:{RESET} {FG_WHITE}500,555,666{RESET}")
+        print(f"  {FG_RED}Bind to IP:Port:{RESET} {FG_WHITE}192.168.1.1:666{RESET}")
+        print(f"  {FG_RED}Redirect Port:{RESET} {FG_WHITE}4000=5000{RESET}")
+        print(f"  {FG_RED}Range Redirect to Port:{RESET} {FG_WHITE}443-600:5201{RESET}")
+        print(f"  {FG_RED}Range Redirect to IP:Port:{RESET} {FG_WHITE}443-600=192.168.1.1:5201{RESET}")
+        print(f"  {FG_RED}Full Specification (Bind IP:Port=Target IP:Port):{RESET} {FG_WHITE}127.0.0.2:443=192.168.1.1:5201{RESET}")
+        print(f"  {FG_RED}IPv6 Support:{RESET} {FG_WHITE}[2001:db8::1]:443{RESET}")
+        print(f"  {FG_RED}Mixed (Multiple formats):{RESET} {FG_WHITE}500,443-600:5201,192.168.1.1:666=8080{RESET}")
         
         try:
-            tcp_input = input(f"  {BOLD}TCP Ports:{RESET} ").strip()
+            tcp_input = input(f"\n  {BOLD}TCP Ports:{RESET} ").strip()
         except KeyboardInterrupt:
             print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
             raise UserCancelled()
         
         if tcp_input:
             try:
-                tcp_ports = parse_ports(tcp_input)
-                for port in tcp_ports:
-                    bind_addr = f"0.0.0.0:{port}"
-                    target_addr = f"127.0.0.1:{port}"
-                    maps.append({"type": "tcp", "bind": bind_addr, "target": target_addr})
-                if tcp_ports:
-                    c_ok(f"  ✅ Added {FG_GREEN}{len(tcp_ports)}{RESET} TCP port(s)")
+                tcp_maps = parse_advanced_ports(tcp_input, "tcp")
+                maps.extend(tcp_maps)
+                if tcp_maps:
+                    c_ok(f"  ✅ Added {FG_GREEN}{len(tcp_maps)}{RESET} TCP mapping(s)")
             except ValueError as e:
                 c_err(f"  ⚠️  Invalid: {e}")
         
@@ -1511,29 +1835,32 @@ def create_server_tunnel():
         
         if udp_input:
             try:
-                udp_ports = parse_ports(udp_input)
-                for port in udp_ports:
-                    bind_addr = f"0.0.0.0:{port}"
-                    target_addr = f"127.0.0.1:{port}"
-                    maps.append({"type": "udp", "bind": bind_addr, "target": target_addr})
-                if udp_ports:
-                    c_ok(f"  ✅ Added {FG_GREEN}{len(udp_ports)}{RESET} UDP port(s)")
+                udp_maps = parse_advanced_ports(udp_input, "udp")
+                maps.extend(udp_maps)
+                if udp_maps:
+                    c_ok(f"  ✅ Added {FG_GREEN}{len(udp_maps)}{RESET} UDP mapping(s)")
             except ValueError as e:
                 c_err(f"  ⚠️  Invalid: {e}")
+        
+        if maps:
+            original_count = len(maps)
+            maps = compact_maps(maps)
+            if len(maps) < original_count:
+                c_ok(f"  ✅ Compacted to {FG_GREEN}{len(maps)}{RESET} mapping(s) (from {original_count})")
         
         cert_file = None
         key_file = None
         if transport == "wssmux":
             print(f"\n  {BOLD}🔐 TLS Certificate Configuration:{RESET}")
-            print(f"  {FG_GREEN}1){RESET} Get new certificate (Let's Encrypt)")
+            print(f"  {FG_GREEN}1){RESET} Get new certificate (Let's Encrypt) - Recommended")
             print(f"  {FG_BLUE}2){RESET} Use existing certificate (provide file paths)")
             print(f"  {FG_YELLOW}3){RESET} Use test certificate (self-signed, auto-generated)")
-            cert_choice = ask_int("\nSelect certificate type", min_=1, max_=3, default=3)
+            cert_choice = ask_int("\nSelect certificate type", min_=1, max_=3, default=1)
             
             if cert_choice == 1:
                 while True:
                     try:
-                        domain = input(f"\n  {BOLD}{FG_GREEN}Enter your domain:{RESET} {FG_WHITE}(e.g., sub.pingless.site){RESET} ").strip()
+                        domain = input(f"\n  {BOLD}{FG_GREEN}Enter your domain:{RESET} {FG_WHITE}(e.g., example.com or sub.example.com){RESET} ").strip()
                     except KeyboardInterrupt:
                         print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
                         raise UserCancelled()
@@ -1656,20 +1983,6 @@ def create_server_tunnel():
                 "udp_data_slice_size": 0
             }
         
-        stealth_padding = False
-        stealth_padding_max = 0
-        stealth_jitter = False
-        
-        if encryption_enabled:
-            print(f"\n  {BOLD}{FG_CYAN}Stealth Settings (Anti-DPI):{RESET}")
-            print(f"  {FG_WHITE}These settings help hide traffic patterns from DPI systems.{RESET}")
-            
-            stealth_padding = ask_yesno(f"  {BOLD}Enable random padding?{RESET} {FG_WHITE}(hides packet sizes){RESET}", default=True)
-            if stealth_padding:
-                stealth_padding_max = ask_int(f"  {BOLD}Max padding bytes:{RESET} {FG_WHITE}(0-256, recommended: 32-128){RESET}", min_=0, max_=256, default=128)
-            
-            stealth_jitter = ask_yesno(f"  {BOLD}Enable timing jitter?{RESET} {FG_WHITE}(adds latency, breaks timing patterns){RESET}", default=False)
-        
         print(f"\n  {BOLD}{FG_CYAN}TUN Mode (Layer 3 VPN):{RESET}")
         print(f"  {FG_WHITE}TUN mode creates a virtual network interface for full VPN functionality.{RESET}")
         print(f"  {FG_WHITE}Required for: L2TP/IPsec, OpenVPN (tun), WireGuard, etc.{RESET}")
@@ -1696,6 +2009,11 @@ def create_server_tunnel():
                 tun_routes.append(route)
                 c_ok(f"  ✅ Route added: {route}")
 
+            print(f"\n  {BOLD}{FG_CYAN}Multi-Stream TUN:{RESET}")
+            print(f"  {FG_WHITE}Number of parallel TUN streams for better throughput (1-64).{RESET}")
+            print(f"  {FG_WHITE}Higher values = better performance but more resource usage.{RESET}")
+            tun_streams = ask_int(f"  {BOLD}TUN Streams:{RESET}", min_=1, max_=64, default=1)
+
             print(f"\n  {BOLD}{FG_CYAN}L2TP/IPsec Auto-Forward:{RESET}")
             print(f"  {FG_WHITE}Automatically forward UDP ports 500/4500/1701 to the TUN IP for external L2TP/IPsec servers.{RESET}")
             forward_l2tp = ask_yesno(
@@ -1719,11 +2037,48 @@ def create_server_tunnel():
                 "local": tun_local,
                 "mtu": tun_mtu,
                 "routes": tun_routes,
+                "streams": tun_streams,
                 "forward_l2tp": forward_l2tp,
-                "l2tp_ports": [500, 4500, 1701],
+                "l2tp_ports": [500,4500,1701],
                 "l2tp_dest_ip": l2tp_dest_ip,
             }
             c_ok(f"  ✅ TUN mode configured: {tun_name} ({tun_local})")
+        
+        # PROXY Protocol settings
+        print(f"\n  {BOLD}{FG_CYAN}PROXY Protocol:{RESET}")
+        print(f"  {FG_WHITE}PROXY Protocol forwards real client IP to backend services.{RESET}")
+        print(f"  {FG_WHITE}Required for: V2ray, OpenVPN, and other services that need real client IP.{RESET}")
+        print(f"  {FG_WHITE}Useful for: Rate limiting, logging, and security based on real client IP.{RESET}")
+        proxy_protocol_enabled = ask_yesno(f"  {BOLD}Enable PROXY Protocol?{RESET}", default=False)
+        proxy_protocol_version = "v1"
+        proxy_protocol_ports = []
+        if proxy_protocol_enabled:
+            print(f"\n  {BOLD}{FG_CYAN}PROXY Protocol Version:{RESET}")
+            print(f"  {FG_BLUE}1){RESET} {FG_GREEN}v1{RESET} {FG_WHITE}(text-based, simple, compatible){RESET}")
+            print(f"  {FG_BLUE}2){RESET} {FG_GREEN}v2{RESET} {FG_WHITE}(binary, efficient, modern){RESET}")
+            version_choice = ask_int(f"  {BOLD}Select version:{RESET}", min_=1, max_=2, default=1)
+            proxy_protocol_version = "v1" if version_choice == 1 else "v2"
+            
+            print(f"\n  {BOLD}{FG_CYAN}PROXY Protocol Ports:{RESET}")
+            print(f"  {FG_WHITE}Enter ports that should use PROXY Protocol (comma-separated){RESET}")
+            print(f"  {FG_WHITE}Example: 2083,2093 or 2083,2093,443{RESET}")
+            print(f"  {FG_YELLOW}⚠️  Only these ports will have PROXY Protocol header{RESET}")
+            print(f"  {FG_YELLOW}⚠️  Other ports will work normally without PROXY Protocol{RESET}")
+            try:
+                ports_input = input(f"  {BOLD}PROXY Protocol Ports:{RESET} {FG_WHITE}(comma-separated, empty = all ports){RESET} ").strip()
+            except KeyboardInterrupt:
+                print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                raise UserCancelled()
+            
+            if ports_input:
+                ports_list = [p.strip() for p in ports_input.split(",") if p.strip()]
+                proxy_protocol_ports = ports_list
+                if proxy_protocol_ports:
+                    c_ok(f"  ✅ PROXY Protocol enabled for {FG_GREEN}{len(proxy_protocol_ports)}{RESET} port(s): {FG_CYAN}{', '.join(proxy_protocol_ports)}{RESET}")
+            else:
+                c_ok(f"  ✅ PROXY Protocol enabled for {FG_GREEN}all ports{RESET}")
+        else:
+            c_ok(f"  ✅ PROXY Protocol disabled")
         
         cfg = {
             "tport": tport,
@@ -1742,7 +2097,10 @@ def create_server_tunnel():
             "stealth_padding": stealth_padding,
             "stealth_padding_max": stealth_padding_max,
             "stealth_jitter": stealth_jitter,
-            "tun_config": tun_config
+            "tun_config": tun_config,
+            "proxy_protocol_enabled": proxy_protocol_enabled,
+            "proxy_protocol_version": proxy_protocol_version,
+            "proxy_protocol_ports": proxy_protocol_ports
         }
         
         if cert_file and key_file:
@@ -1751,14 +2109,16 @@ def create_server_tunnel():
         
         config_path = create_server_config_file(tport, cfg)
         
-        c_ok(f"Configuration saved: {config_path}")
+        print()
+        print(f"  {BOLD}{FG_CYAN}{'═' * 60}{RESET}")
+        c_ok(f"  ✅ Configuration saved: {FG_WHITE}{config_path}{RESET}")
+        print(f"  {BOLD}{FG_CYAN}{'═' * 60}{RESET}")
         
         print()
         if ask_yesno(f"  {BOLD}{FG_GREEN}Start tunnel now?{RESET}", default=True):
             print(f"\n  {FG_CYAN}Creating systemd service and starting tunnel...{RESET}")
             if run_tunnel(config_path):
                 c_ok(f"  ✅ Tunnel started successfully!")
-                c_ok(f"  ✅ Systemd service created and enabled {FG_WHITE}(auto-restart on crash/reboot){RESET}")
             else:
                 c_err("  ❌ Failed to start tunnel!")
         
@@ -1805,26 +2165,51 @@ def create_client_tunnel():
         transports = {1: "tcpmux", 2: "kcpmux", 3: "wsmux", 4: "wssmux"}
         transport = transports[transport_choice]
         
+        tls_insecure_skip_verify = False
+        if transport == "wssmux":
+            print(f"\n  {BOLD}🔐 Server Certificate Type:{RESET}")
+            print(f"  {FG_WHITE}What type of certificate does the Iran server use?{RESET}")
+            print(f"  {FG_GREEN}1){RESET} Let's Encrypt (real certificate) - Recommended")
+            print(f"  {FG_YELLOW}2){RESET} Self-signed certificate (for testing)")
+            cert_type = ask_int("\n  Select server certificate type", min_=1, max_=2, default=1)
+            
+            if cert_type == 2:
+                tls_insecure_skip_verify = True
+                c_warn("  ⚠️  tls_insecure_skip_verify will be set to true (for self-signed certificate)")
+            else:
+                tls_insecure_skip_verify = False
+                c_ok("  ✅ tls_insecure_skip_verify will be set to false (for Let's Encrypt)")
+        
         print(f"\n  {BOLD}{FG_CYAN}Server Connection:{RESET}")
-        print(f"  {FG_WHITE}IPv4 example: 1.2.3.4{RESET}")
-        print(f"  {FG_WHITE}IPv6 example: 2001:db8::1 or fd00::1{RESET}")
-        server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET}")
-        
-        tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-        
-        if ':' in server_ip and not server_ip.startswith('['):
-            server_addr = f"[{server_ip}]:{tport}"
-            print(f"  {FG_GREEN}✅ IPv6 detected, formatted as: {server_addr}{RESET}")
+        if transport == "wssmux":
+            print(f"  {FG_WHITE}Domain example: example.com or sub.example.com{RESET}")
+            print(f"  {FG_YELLOW}⚠️  Note: For Let's Encrypt, you must use domain (not IP address){RESET}")
+            server_domain = ask_nonempty(f"  {BOLD}Server Domain:{RESET}")
+            tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
+            server_addr = f"{server_domain}:{tport}"
         else:
-            server_addr = f"{server_ip}:{tport}"
+            print(f"  {FG_WHITE}IPv4 example: 1.2.3.4{RESET}")
+            print(f"  {FG_WHITE}IPv6 example: 2001:db8::1 or fd00::1{RESET}")
+            server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET}")
+            tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
+            
+            if ':' in server_ip and not server_ip.startswith('['):
+                server_addr = f"[{server_ip}]:{tport}"
+                print(f"  {FG_GREEN}✅ IPv6 detected, formatted as: {server_addr}{RESET}")
+            else:
+                server_addr = f"{server_ip}:{tport}"
         
         print(f"\n  {BOLD}{FG_CYAN}Security Settings:{RESET}")
+        print(f"  {FG_WHITE}Note: Must match server settings!{RESET}")
         psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}")
         
-        print(f"  {FG_WHITE}Note: Must match server settings!{RESET}")
         encryption_enabled = ask_yesno(f"  {BOLD}Enable encryption?{RESET} {FG_WHITE}(anti-DPI){RESET}", default=False)
         encryption_key = ""
         encryption_algorithm = "chacha"
+        stealth_padding = False
+        stealth_padding_max = 0
+        stealth_jitter = False
+        
         if encryption_enabled:
             print(f"\n  {BOLD}{FG_CYAN}Encryption Algorithm:{RESET} {FG_WHITE}(must match server!){RESET}")
             print(f"  {FG_BLUE}1){RESET} {FG_GREEN}ChaCha20-Poly1305{RESET} {FG_WHITE}(default - fast on all CPUs){RESET}")
@@ -1838,7 +2223,7 @@ def create_client_tunnel():
             except KeyboardInterrupt:
                 print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
                 raise UserCancelled()
-        
+            
         print(f"\n  {BOLD}{FG_CYAN}Performance Profiles:{RESET}")
         print(f"  {FG_BLUE}1){RESET} {FG_GREEN}balanced{RESET} {FG_WHITE}(default - best overall){RESET}")
         print(f"  {FG_BLUE}2){RESET} {FG_GREEN}aggressive{RESET} {FG_WHITE}(high throughput, more CPU){RESET}")
@@ -1852,7 +2237,9 @@ def create_client_tunnel():
         
         print(f"\n  {BOLD}{FG_CYAN}Connection Settings:{RESET}")
         connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-16){RESET}", min_=1, max_=100, default=8)
-        mux_con = ask_int(f"  {BOLD}Mux Con:{RESET} {FG_WHITE}(recommended: 10){RESET}", min_=1, max_=100, default=10)
+        smux_default = get_default_smux_config(profile)
+        default_mux_con = smux_default.get("mux_con", 8)
+        mux_con = ask_int(f"  {BOLD}Mux Con:{RESET} {FG_WHITE}(recommended: {default_mux_con} for {profile} profile){RESET}", min_=1, max_=100, default=default_mux_con)
         retry_interval = ask_int(f"  {BOLD}Retry Interval:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=3)
         dial_timeout = ask_int(f"  {BOLD}Dial Timeout:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=10)
         aggressive_pool = ask_yesno(f"  {BOLD}Aggressive Pool?{RESET} {FG_WHITE}(faster reconnect){RESET}", default=False)
@@ -1878,16 +2265,6 @@ def create_client_tunnel():
                 break
             
             print(f"\n  {BOLD}{FG_CYAN}Backup Server #{len(paths) + 1}:{RESET} {FG_WHITE}(Additional Iran Server){RESET}")
-            print(f"  {FG_WHITE}IPv4 example: 1.2.3.4 | IPv6 example: 2001:db8::1{RESET}")
-            
-            new_server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET}")
-            
-            new_tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-            
-            if ':' in new_server_ip and not new_server_ip.startswith('['):
-                new_server_addr = f"[{new_server_ip}]:{new_tport}"
-            else:
-                new_server_addr = f"{new_server_ip}:{new_tport}"
             
             print(f"\n  {BOLD}Transport Types:{RESET}")
             print(f"  {FG_CYAN}1){RESET} {FG_GREEN}tcpmux{RESET} (TCP with smux)")
@@ -1896,6 +2273,22 @@ def create_client_tunnel():
             print(f"  {FG_CYAN}4){RESET} {FG_GREEN}wssmux{RESET} (WebSocket Secure with smux)")
             new_transport_choice = ask_int(f"\n  {BOLD}Select transport:{RESET}", min_=1, max_=4, default=1)
             new_transport = transports[new_transport_choice]
+            
+            if new_transport == "wssmux":
+                print(f"  {FG_WHITE}Domain example: example.com or sub.example.com{RESET}")
+                print(f"  {FG_YELLOW}⚠️  Note: For Let's Encrypt, you must use domain (not IP address){RESET}")
+                new_server_domain = ask_nonempty(f"  {BOLD}Server Domain:{RESET}")
+                new_tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
+                new_server_addr = f"{new_server_domain}:{new_tport}"
+            else:
+                print(f"  {FG_WHITE}IPv4 example: 1.2.3.4 | IPv6 example: 2001:db8::1{RESET}")
+                new_server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET}")
+                new_tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
+                
+                if ':' in new_server_ip and not new_server_ip.startswith('['):
+                    new_server_addr = f"[{new_server_ip}]:{new_tport}"
+                else:
+                    new_server_addr = f"{new_server_ip}:{new_tport}"
             
             new_connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-16){RESET}", min_=1, max_=100, default=8)
             
@@ -1921,7 +2314,6 @@ def create_client_tunnel():
         print(f"\n  {BOLD}{FG_CYAN}Advanced Options:{RESET}")
         verbose = ask_yesno(f"  {BOLD}Enable verbose logging (for debugging)?{RESET}", default=False)
         
-
         heartbeat = ask_int(f"  {BOLD}Heartbeat Interval:{RESET} {FG_WHITE}(seconds, 0 = use default 15s){RESET}", min_=0, max_=300, default=0)
         
         print(f"\n  {BOLD}{FG_CYAN}Performance Tuning:{RESET} {FG_YELLOW}(Advanced - Optional){RESET}")
@@ -1935,38 +2327,21 @@ def create_client_tunnel():
                 "udp_data_slice_size": 0
             }
         
-        stealth_padding = False
-        stealth_padding_max = 0
-        stealth_jitter = False
-        
-        if encryption_enabled:
-            print(f"\n  {BOLD}{FG_CYAN}Stealth Settings (Anti-DPI):{RESET}")
-            print(f"  {FG_WHITE}These settings help hide traffic patterns from DPI systems.{RESET}")
-            print(f"  {FG_YELLOW}⚠️  Must match server settings!{RESET}")
-            
-            stealth_padding = ask_yesno(f"  {BOLD}Enable random padding?{RESET} {FG_WHITE}(hides packet sizes){RESET}", default=True)
-            if stealth_padding:
-                stealth_padding_max = ask_int(f"  {BOLD}Max padding bytes:{RESET} {FG_WHITE}(0-256, recommended: 32-128){RESET}", min_=0, max_=256, default=128)
-            
-            stealth_jitter = ask_yesno(f"  {BOLD}Enable timing jitter?{RESET} {FG_WHITE}(adds latency, breaks timing patterns){RESET}", default=False)
-        
         print(f"\n  {BOLD}{FG_CYAN}TUN Mode (Layer 3 VPN):{RESET}")
         print(f"  {FG_WHITE}TUN mode creates a virtual network interface for full VPN functionality.{RESET}")
         print(f"  {FG_WHITE}Required for: L2TP/IPsec, OpenVPN (tun), WireGuard, etc.{RESET}")
         print(f"  {FG_YELLOW}⚠️  Note: Requires root privileges and Linux kernel support.{RESET}")
-        print(f"  {FG_YELLOW}⚠️  Must match server TUN settings!{RESET}")
         tun_enabled = ask_yesno(f"  {BOLD}Enable TUN mode?{RESET}", default=False)
         
         tun_config = None
         if tun_enabled:
             print(f"\n  {BOLD}{FG_CYAN}TUN Configuration:{RESET}")
             tun_name = ask_nonempty(f"  {BOLD}Interface Name:{RESET}", default="netrix0")
-            print(f"  {FG_WHITE}Note: Use different IP than server (e.g., server=10.200.0.1/30, client=10.200.0.2/30){RESET}")
             tun_local = ask_nonempty(f"  {BOLD}Local IP (CIDR):{RESET} {FG_WHITE}(e.g., 10.200.0.2/30){RESET}", default="10.200.0.2/30")
             tun_mtu = ask_int(f"  {BOLD}MTU:{RESET}", min_=576, max_=9000, default=1400)
             
             tun_routes = []
-            print(f"  {FG_WHITE}Routes: Add networks to route through TUN (e.g., 0.0.0.0/0 for all traffic){RESET}")
+            print(f"  {FG_WHITE}Routes: Add networks to route through TUN (e.g., 192.168.1.0/24){RESET}")
             while True:
                 try:
                     route = input(f"  {BOLD}Add Route:{RESET} {FG_WHITE}(empty to finish){RESET} ").strip()
@@ -1977,21 +2352,44 @@ def create_client_tunnel():
                     break
                 tun_routes.append(route)
                 c_ok(f"  ✅ Route added: {route}")
+
+            print(f"\n  {BOLD}{FG_CYAN}Multi-Stream TUN:{RESET}")
+            print(f"  {FG_WHITE}Number of parallel TUN streams for better throughput (1-64).{RESET}")
+            print(f"  {FG_WHITE}Higher values = better performance but more resource usage.{RESET}")
+            tun_streams = ask_int(f"  {BOLD}TUN Streams:{RESET}", min_=1, max_=64, default=1)
             
             tun_config = {
                 "enabled": True,
                 "name": tun_name,
                 "local": tun_local,
                 "mtu": tun_mtu,
-                "routes": tun_routes
+                "routes": tun_routes,
+                "streams": tun_streams
             }
             c_ok(f"  ✅ TUN mode configured: {tun_name} ({tun_local})")
+        
+        print(f"\n  {BOLD}{FG_CYAN}PROXY Protocol:{RESET}")
+        print(f"  {FG_WHITE}PROXY Protocol forwards real client IP to backend services.{RESET}")
+        print(f"  {FG_WHITE}Required for: V2ray, OpenVPN, and other services that need real client IP.{RESET}")
+        print(f"  {FG_WHITE}Useful for: Rate limiting, logging, and security based on real client IP.{RESET}")
+        proxy_protocol_enabled = ask_yesno(f"  {BOLD}Enable PROXY Protocol?{RESET}", default=False)
+        proxy_protocol_version = "v1"
+        if proxy_protocol_enabled:
+            print(f"\n  {BOLD}{FG_CYAN}PROXY Protocol Version:{RESET}")
+            print(f"  {FG_BLUE}1){RESET} {FG_GREEN}v1{RESET} {FG_WHITE}(text-based, simple, compatible){RESET}")
+            print(f"  {FG_BLUE}2){RESET} {FG_GREEN}v2{RESET} {FG_WHITE}(binary, efficient, modern){RESET}")
+            version_choice = ask_int(f"  {BOLD}Select version:{RESET}", min_=1, max_=2, default=1)
+            proxy_protocol_version = "v1" if version_choice == 1 else "v2"
+            c_ok(f"  ✅ PROXY Protocol enabled (v{proxy_protocol_version}) - ports configured on server")
+        else:
+            c_ok(f"  ✅ PROXY Protocol disabled")
         
         cfg = {
             "psk": psk,
             "profile": profile,
             "mux_con": mux_con,
             "paths": paths,
+            "tls_insecure_skip_verify": tls_insecure_skip_verify,
             "verbose": verbose,
             "heartbeat": heartbeat,
             "buffer_pool_config": buffer_pool_config,
@@ -2001,19 +2399,24 @@ def create_client_tunnel():
             "stealth_padding": stealth_padding,
             "stealth_padding_max": stealth_padding_max,
             "stealth_jitter": stealth_jitter,
-            "tun_config": tun_config
+            "tun_config": tun_config,
+            "proxy_protocol_enabled": proxy_protocol_enabled,
+            "proxy_protocol_version": proxy_protocol_version,
+            "proxy_protocol_ports": []
         }
         
         config_path = create_client_config_file(cfg)
         
-        c_ok(f"  ✅ Configuration saved: {FG_GREEN}{config_path}{RESET}")
+        print()
+        print(f"  {BOLD}{FG_CYAN}{'═' * 60}{RESET}")
+        c_ok(f"  ✅ Configuration saved: {FG_WHITE}{config_path}{RESET}")
+        print(f"  {BOLD}{FG_CYAN}{'═' * 60}{RESET}")
         
         print()
         if ask_yesno(f"  {BOLD}{FG_GREEN}Start tunnel now?{RESET}", default=True):
             print(f"\n  {FG_CYAN}Creating systemd service and starting tunnel...{RESET}")
             if run_tunnel(config_path):
                 c_ok(f"  ✅ Tunnel started successfully!")
-                c_ok(f"  ✅ Systemd service created and enabled {FG_WHITE}(auto-restart on crash/reboot){RESET}")
             else:
                 c_err("  ❌ Failed to start tunnel!")
         
@@ -2298,6 +2701,12 @@ def stop_tunnel_menu():
             print(f"\n  {FG_CYAN}Stopping tunnel...{RESET}", end='', flush=True)
             if stop_tunnel(config_path):
                 print(f" {FG_GREEN}✅{RESET}")
+                time.sleep(1)
+                print(f"  {FG_CYAN}Cleaning up iptables rules...{RESET}", end='', flush=True)
+                if cleanup_iptables_rules(config_path):
+                    print(f" {FG_GREEN}✅{RESET}")
+                else:
+                    print(f" {FG_YELLOW}⚠️{RESET}")
                 c_ok(f"  ✅ Tunnel stopped successfully.")
             else:
                 print(f" {FG_RED}❌{RESET}")
@@ -2606,6 +3015,17 @@ def install_netrix_core():
             
             c_ok(f"  ✅ Netrix Core installed successfully!")
             c_ok(f"  ✅ Binary location: {FG_GREEN}{NETRIX_BINARY}{RESET}")
+            try:
+                try:
+                    with urllib.request.urlopen("https://api.ipify.org", timeout=3) as response:
+                        public_ip = response.read().decode().strip()
+                        c_ok(f"  ✅ Server Public IP: {FG_GREEN}{public_ip}{RESET}")
+                except:
+                    hostname = socket.gethostname()
+                    local_ip = socket.gethostbyname(hostname)
+                    c_ok(f"  ✅ Server Local IP: {FG_GREEN}{local_ip}{RESET}")
+            except Exception:
+                pass  
             
         except Exception as e:
             c_err(f"  ❌ Failed to install: {FG_RED}{str(e)}{RESET}")
@@ -2733,6 +3153,18 @@ def install_netrix_core_auto():
             
             c_ok(f"  ✅ Netrix Core installed successfully!")
             c_ok(f"  ✅ Binary location: {FG_GREEN}{NETRIX_BINARY}{RESET}")
+            
+            try:
+                try:
+                    with urllib.request.urlopen("https://api.ipify.org", timeout=3) as response:
+                        public_ip = response.read().decode().strip()
+                        c_ok(f"  ✅ Server Public IP: {FG_GREEN}{public_ip}{RESET}")
+                except:
+                    hostname = socket.gethostname()
+                    local_ip = socket.gethostbyname(hostname)
+                    c_ok(f"  ✅ Server Local IP: {FG_GREEN}{local_ip}{RESET}")
+            except Exception:
+                pass
             
         except Exception as e:
             c_err(f"  ❌ Failed to install: {FG_RED}{str(e)}{RESET}")
@@ -3246,6 +3678,10 @@ def main_menu():
         else:
             print(f"    {FG_RED}Core Status: ❌ Not Installed{RESET}")
         
+        server_ip = get_server_ip()
+        if server_ip:
+            print(f"    {FG_CYAN}Server IP: {FG_WHITE}{server_ip}{RESET}")
+        
         print(f"    {FG_CYAN}Support: {FG_WHITE}@g0dline{RESET}")
         print()
         print(f"  {BOLD}{FG_GREEN}1){RESET} Create Tunnel")
@@ -3291,3 +3727,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
