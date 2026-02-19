@@ -13,7 +13,7 @@ except ImportError:
     sys.exit(1)
 
 # ========== Version ==========
-VERSION = "3.0.0"
+VERSION = "2.0.4"
 
 ROOT_DIR = Path("/root")
 NETRIX_CONFIG_DIR = ROOT_DIR / "netrix"
@@ -22,8 +22,6 @@ NETRIX_RELEASE_URLS = {
     "amd64": f"https://github.com/Karrari-Dev/Netrix-/releases/download/v{VERSION}/netrix-amd64.tar.gz",
     "arm64": f"https://github.com/Karrari-Dev/Netrix-/releases/download/v{VERSION}/netrix-arm64.tar.gz"
 }
-
-MAX_STEALTH_PADDING_BYTES = 255
 
 FG_BLACK = "\033[30m"
 FG_RED = "\033[31m"
@@ -73,11 +71,6 @@ class UserCancelled(Exception):
     """Exception raised when user cancels an operation (Ctrl+C)"""
     pass
 
-def exit_script():
-    """Exit the script completely when Ctrl+C is pressed"""
-    print(f"\n\n  {FG_YELLOW}Exiting...{RESET}")
-    sys.exit(0)
-
 def c_ok(msg: str):
     try: print(f"{FG_GREEN}✅ {msg}{RESET}")
     except Exception: print(msg)
@@ -100,7 +93,7 @@ def clear():
 
 def pause(msg="\nPress Enter to continue..."):
     try: input(msg)
-    except KeyboardInterrupt: exit_script()
+    except KeyboardInterrupt: pass
 
 def which(cmd):
     p = shutil.which(cmd)
@@ -132,59 +125,45 @@ def is_ipv6_available() -> bool:
     except (socket.error, OSError):
         return False
 
-def get_server_ip(timeout: float = 1.5, prefer_public: bool = False) -> Optional[str]:
-    """دریافت IP سرور (IPv4) - پیش‌فرض: محلی (بدون اینترنت)"""
-    
-    def is_loopback(ip: str) -> bool:
-        """چک کردن آیا IP یک loopback هست (127.x.x.x)"""
-        return ip.startswith("127.") or ip == "localhost"
-    
+def get_server_ip() -> Optional[str]:
+    """دریافت IP سرور (IPv4) - ابتدا IP عمومی، سپس IP محلی"""
     try:
-        result = subprocess.run(
-            ["ip", "-4", "addr", "show"],
-            capture_output=True,
-            text=True,
-            timeout=2
-        )
-        if result.returncode == 0:
-            for line in result.stdout.split('\n'):
-                if 'inet ' in line and '127.' not in line:
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        ip = parts[1].split('/')[0]
-                        if ip and '.' in ip and not is_loopback(ip):
-                            return ip
-    except KeyboardInterrupt:
-        raise
-    except Exception:
-        pass
-    
-    try:
-        hostname = socket.gethostname()
-        local_ip = socket.gethostbyname(hostname)
-        if local_ip and not is_loopback(local_ip):
-            return local_ip
-    except Exception:
-        pass
-
-    if prefer_public:
         try:
-            with urllib.request.urlopen("https://api.ipify.org", timeout=timeout) as response:
+            with urllib.request.urlopen("https://api.ipify.org", timeout=3) as response:
                 public_ip = response.read().decode().strip()
                 if public_ip and '.' in public_ip:
                     return public_ip
-        except KeyboardInterrupt:
-            raise
         except Exception:
             pass
-
-    return None
-
-def safe_get_server_ip(timeout: float = 1.5, prefer_public: bool = False) -> Optional[str]:
-    """Safe wrapper to avoid blocking or crashing on network issues."""
-    try:
-        return get_server_ip(timeout=timeout, prefer_public=prefer_public)
-    except KeyboardInterrupt:
+        
+        try:
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+            if local_ip and local_ip != "127.0.0.1":
+                return local_ip
+        except Exception:
+            pass
+        
+        try:
+            result = subprocess.run(
+                ["ip", "-4", "addr", "show"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if 'inet ' in line and '127.0.0.1' not in line:
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            ip = parts[1].split('/')[0]
+                            if ip and '.' in ip:
+                                return ip
+        except Exception:
+            pass
+        
+        return None
+    except Exception:
         return None
 
 def ask_int(prompt, min_=1, max_=65535, default=None):
@@ -192,7 +171,8 @@ def ask_int(prompt, min_=1, max_=65535, default=None):
         try:
             raw = input(f"{prompt}{' ['+str(default)+']' if default is not None else ''}: ").strip()
         except KeyboardInterrupt:
-            exit_script()
+            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+            raise UserCancelled()
         except (UnicodeDecodeError, UnicodeEncodeError):
             print(f"  {FG_RED}⚠️  Invalid input encoding. Please use English characters.{RESET}")
             continue
@@ -212,7 +192,8 @@ def ask_nonempty(prompt, default=None):
         try:
             raw = input(f"{prompt}{' ['+default+']' if default else ''}: ").strip()
         except KeyboardInterrupt:
-            exit_script()
+            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+            raise UserCancelled()
         except (UnicodeDecodeError, UnicodeEncodeError):
             print(f"  {FG_RED}⚠️  Invalid input encoding. Please use English/ASCII characters.{RESET}")
             continue
@@ -228,7 +209,8 @@ def ask_yesno(prompt, default=True):
         try:
             raw = input(f"{prompt} [{default_str}]: ").strip().lower()
         except KeyboardInterrupt:
-            exit_script()
+            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+            raise UserCancelled()
         except (UnicodeDecodeError, UnicodeEncodeError):
             print(f"  {FG_RED}⚠️  Invalid input encoding. Please use English characters.{RESET}")
             continue
@@ -432,93 +414,6 @@ def compact_maps(maps: List[Dict[str, str]]) -> List[Dict[str, str]]:
     
     return compacted
 
-def configure_encryption() -> dict:
-    """تنظیم Encryption (رمزنگاری)"""
-    config = {}
-    
-    print(f"\n  {BOLD}{FG_CYAN}🔐 Encryption Configuration:{RESET}")
-    print(f"  {FG_WHITE}Encrypts all tunnel traffic for security{RESET}")
-    
-    encryption_enabled = ask_yesno(f"  {BOLD}Enable Encryption?{RESET} {FG_WHITE}(Recommended: Yes){RESET}", default=True)
-    config["enabled"] = encryption_enabled
-    
-    if encryption_enabled:
-        print(f"\n  {BOLD}Encryption Algorithms:{RESET}")
-        print(f"  {FG_CYAN}1.{RESET} {FG_GREEN}ChaCha20-Poly1305{RESET} - Fast on all CPUs {FG_YELLOW}[RECOMMENDED]{RESET}")
-        print(f"  {FG_CYAN}2.{RESET} AES-256-GCM - Fast on CPUs with AES-NI")
-        
-        algo_choice = ask_int(f"  {BOLD}Select Algorithm{RESET}", min_=1, max_=2, default=1)
-        config["algorithm"] = "chacha" if algo_choice == 1 else "aes-gcm"
-        
-        encryption_key = ask_nonempty(f"  {BOLD}Encryption Key:{RESET} {FG_WHITE}(shared secret){RESET}")
-        config["key"] = encryption_key
-        
-        c_ok(f"  ✅ Encryption enabled: {config['algorithm'].upper()}")
-    else:
-        config["algorithm"] = "chacha"
-        config["key"] = ""
-        c_warn(f"  ⚠️  Encryption disabled - traffic will be unencrypted!")
-    
-    return config
-
-def configure_stealth() -> dict:
-    """تنظیم Stealth (Padding + Jitter) - مستقل از Encryption"""
-    config = {}
-    
-    print(f"\n  {BOLD}{FG_CYAN}🥷 Stealth Configuration (Anti-DPI):{RESET}")
-    print(f"  {FG_WHITE}Adds random padding and timing jitter to evade detection{RESET}")
-    
-    padding_enabled = ask_yesno(f"  {BOLD}Enable Random Padding?{RESET} {FG_WHITE}(hides packet sizes){RESET}", default=False)
-    config["padding_enabled"] = padding_enabled
-    
-    if padding_enabled:
-        padding_min = ask_int(f"  {BOLD}Padding Min:{RESET} {FG_WHITE}(bytes, 0-255){RESET}", min_=0, max_=255, default=0)
-        padding_max = ask_int(f"  {BOLD}Padding Max:{RESET} {FG_WHITE}(bytes, 1-255, protocol max){RESET}", min_=1, max_=255, default=128)
-        if padding_min > padding_max:
-            padding_min = padding_max
-        config["padding_min"] = padding_min
-        config["padding_max"] = padding_max
-        c_ok(f"  ✅ Padding enabled: {padding_min}-{padding_max} bytes")
-    else:
-        config["padding_min"] = 0
-        config["padding_max"] = 0
-    
-    jitter_enabled = ask_yesno(f"  {BOLD}Enable Timing Jitter?{RESET} {FG_WHITE}(randomizes timing){RESET}", default=False)
-    config["jitter_enabled"] = jitter_enabled
-    
-    if jitter_enabled:
-        jitter_min = ask_int(f"  {BOLD}Jitter Min:{RESET} {FG_WHITE}(ms, 1-100){RESET}", min_=1, max_=100, default=5)
-        jitter_max = ask_int(f"  {BOLD}Jitter Max:{RESET} {FG_WHITE}(ms, 1-200){RESET}", min_=1, max_=200, default=20)
-        if jitter_min > jitter_max:
-            jitter_min = jitter_max
-        config["jitter_min_ms"] = jitter_min
-        config["jitter_max_ms"] = jitter_max
-        c_ok(f"  ✅ Jitter enabled: {jitter_min}-{jitter_max}ms")
-    else:
-        config["jitter_min_ms"] = 5
-        config["jitter_max_ms"] = 20
-    
-    if not padding_enabled and not jitter_enabled:
-        c_warn(f"  ⚠️  Stealth features disabled")
-    
-    return config
-
-def configure_anti_dpi() -> int:
-    """تنظیم Anti-DPI Delay - مستقل از Encryption و Stealth"""
-    print(f"\n  {BOLD}{FG_CYAN}🛡️  Anti-DPI Delay Configuration:{RESET}")
-    print(f"  {FG_WHITE}Prevents SYN-ACK-FIN pattern detection by firewalls{RESET}")
-    print(f"  {FG_YELLOW}Note: Only needed if connections are immediately dropped{RESET}")
-    
-    enable_delay = ask_yesno(f"  {BOLD}Enable Anti-DPI Delay?{RESET} {FG_WHITE}(for DPI bypass){RESET}", default=False)
-    
-    if enable_delay:
-        delay_ms = ask_int(f"  {BOLD}Delay Amount:{RESET} {FG_WHITE}(ms, recommended: 100-200){RESET}", min_=50, max_=500, default=150)
-        c_ok(f"  ✅ Anti-DPI delay enabled: {delay_ms}ms")
-        return delay_ms
-    else:
-        c_warn(f"  ⚠️  Anti-DPI delay disabled")
-        return 0
-
 def configure_buffer_pools() -> dict:
     """تنظیم Buffer Pool sizes برای performance tuning"""
     config = {}
@@ -562,79 +457,6 @@ def configure_buffer_pools() -> dict:
     
     return config
 
-def configure_compression() -> dict:
-    """تنظیم Compression برای بهینه‌سازی پهنای باند"""
-    config = {}
-    
-    print(f"\n  {BOLD}{FG_CYAN}🗜️  Compression Configuration (Bandwidth Optimization):{RESET}")
-    print(f"  {FG_GREEN}✅ Default: LZ4 enabled - fastest with 30-40% bandwidth savings{RESET}")
-    print(f"  {FG_WHITE}Latency impact: +0.1-0.3ms (negligible){RESET}")
-    print(f"  {FG_WHITE}CPU overhead: 2-3% (minimal){RESET}\n")
-    
-    compression_enabled = ask_yesno(
-        f"  {BOLD}Enable Compression?{RESET} {FG_WHITE}(Recommended: Yes for bandwidth savings){RESET}",
-        default=True
-    )
-    config["enabled"] = compression_enabled
-    
-    if compression_enabled:
-        print(f"\n  {BOLD}Compression Algorithms:{RESET}")
-        print(f"  {FG_CYAN}1.{RESET} {FG_GREEN}LZ4{RESET} - Fastest (2500 MB/s, 30-40% savings) {FG_YELLOW}[RECOMMENDED]{RESET}")
-        print(f"  {FG_CYAN}2.{RESET} Zstd - Best compression (40-60% savings, slower)")
-        print(f"  {FG_CYAN}3.{RESET} Snappy - Balanced (fast + decent compression)")
-        
-        algo_choice = ask_int(
-            f"  {BOLD}Select Algorithm{RESET}",
-            min_=1,
-            max_=3,
-            default=1
-        )
-        
-        algo_map = {
-            1: "lz4",
-            2: "zstd",
-            3: "snappy"
-        }
-        config["algorithm"] = algo_map[algo_choice]
-        
-        if algo_choice == 2: 
-            print(f"\n  {FG_WHITE}Zstd Compression Level: 1 (fastest) to 19 (best compression){RESET}")
-            level = ask_int(
-                f"  {BOLD}Compression Level{RESET} {FG_WHITE}(default: 3 = balanced){RESET}",
-                min_=1,
-                max_=19,
-                default=3
-            )
-            config["level"] = level
-        else:
-            config["level"] = 0
-        
-        min_size = ask_int(
-            f"  {BOLD}Minimum Packet Size to Compress{RESET} {FG_WHITE}(bytes, default: 1024 = 1KB){RESET}",
-            min_=0,
-            max_=65536,
-            default=1024
-        )
-        config["min_size"] = min_size
-        
-        max_size = ask_int(
-            f"  {BOLD}Maximum Frame Size{RESET} {FG_WHITE}(bytes, default: 65536 = 64KB){RESET}",
-            min_=1024,
-            max_=131072,
-            default=65536
-        )
-        config["max_size"] = max_size
-        
-        c_ok(f"  ✅ Compression configured: {config['algorithm'].upper()} (min={min_size}B, max={max_size}B)")
-    else:
-        config["algorithm"] = "none"
-        config["level"] = 0
-        config["min_size"] = 0
-        config["max_size"] = 0
-        c_warn(f"  ⚠️  Compression disabled - bandwidth usage will be higher")
-    
-    return config
-
 # ========== Config File Management ==========
 def get_config_path(tport: int) -> Path:
     """مسیر فایل کانفیگ YAML در /root/netrix"""
@@ -645,7 +467,7 @@ def get_default_smux_config(profile: str = "balanced") -> dict:
     """تنظیمات پیش‌فرض SMUX بر اساس profile - همگام با netrix.go"""
     profiles = {
         "balanced": {
-            "keepalive": 15,  
+            "keepalive": 20,   
             "max_recv": 4194304,
             "max_stream": 2097152,
             "frame_size": 32768,  
@@ -722,17 +544,17 @@ def get_default_kcp_config(profile: str = "balanced") -> dict:
     return profiles.get(profile.lower(), profiles["balanced"])
 
 def get_default_advanced_config(transport: str) -> dict:
-    """تنظیمات پیش‌فرض Advanced بر اساس transport - همگام با netrix_final.go"""
+    """تنظیمات پیش‌فرض Advanced بر اساس transport - همگام با netrix.go فایل 3"""
     base_config = {
         "tcp_nodelay": True,
-        "tcp_keepalive": 15,         
+        "tcp_keepalive": 30,         
         "tcp_read_buffer": 8388608,  
         "tcp_write_buffer": 8388608, 
         "cleanup_interval": 60,      
-        "session_timeout": 180,     
+        "session_timeout": 120,      
         "stream_timeout": 21600,    
         "stream_idle_timeout": 600,  
-        "stream_queue_size": 2048,
+        "max_connections": 0,    
         "max_udp_flows": 5000,        
         "udp_flow_timeout": 600,    
         "tls_insecure_skip_verify": False, 
@@ -744,10 +566,6 @@ def get_default_advanced_config(transport: str) -> dict:
         base_config.update({
             "udp_read_buffer": 4194304,  
             "udp_write_buffer": 4194304  
-        })
-    elif transport in ("tlsmux", "tls", "realitymux", "reality"):
-        base_config.update({
-            "tls_insecure_skip_verify": False
         })
     elif transport in ("wsmux", "wssmux"):
         base_config.update({
@@ -828,6 +646,8 @@ def get_certificate_with_acme(domain: str, email: str, port: int) -> tuple[Optio
     
 
     print(f"\n  {FG_CYAN}🎫 Step 5/5:{RESET} {BOLD}Issuing certificate for {FG_GREEN}{domain}{RESET}...")
+    print(f"     {FG_YELLOW}⚠️  Note:{RESET} acme.sh will use port {FG_CYAN}80{RESET} for verification {FG_WHITE}(not {port}){RESET}")
+    print(f"     {FG_YELLOW}⚠️  Make sure port 80 is not in use, or we can temporarily stop nginx{RESET}")
     
     port_80_in_use = False
     nginx_stopped = False
@@ -839,17 +659,26 @@ def get_certificate_with_acme(domain: str, email: str, port: int) -> tuple[Optio
         )
         if result.returncode == 0 and result.stdout.strip():
             port_80_in_use = True
-            c_warn(f"  ⚠️  Port 80 in use")
-            if ask_yesno(f"  {BOLD}Stop nginx temporarily?{RESET}", default=True):
+            c_warn(f"  ⚠️  Port {FG_YELLOW}80{RESET} is in use {FG_WHITE}(likely nginx){RESET}")
+            if ask_yesno(f"  {BOLD}Stop nginx temporarily for certificate verification?{RESET}", default=True):
+                print(f"  {FG_CYAN}Stopping nginx...{RESET}")
                 subprocess.run(["systemctl", "stop", "nginx"], check=False)
                 nginx_stopped = True
+                c_ok(f"  ✅ nginx stopped temporarily")
     except Exception:
         pass
     
     if not port_80_in_use or nginx_stopped:
-        pass
+        try:
+            input(f"  {BOLD}{FG_CYAN}Press Enter when ready to continue...{RESET}")
+        except KeyboardInterrupt:
+            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+            if nginx_stopped:
+                print(f"  {FG_CYAN}Restarting nginx...{RESET}")
+                subprocess.run(["systemctl", "start", "nginx"], check=False)
+            return None, None
     else:
-        c_err("  ❌ Port 80 must be free for verification")
+        c_err("  ❌ Cannot proceed without stopping services on port 80")
         return None, None
     
     result = subprocess.run(
@@ -859,6 +688,7 @@ def get_certificate_with_acme(domain: str, email: str, port: int) -> tuple[Optio
     )
     
     if nginx_stopped:
+        print(f"\n  {FG_CYAN}Restarting nginx...{RESET}")
         subprocess.run(["systemctl", "start", "nginx"], check=False)
     
     if result.returncode != 0:
@@ -956,8 +786,7 @@ def write_yaml_with_comments(file_path: Path, data: dict, comments: dict = None)
                         isinstance(value, str) and 
                         (str_value.startswith('[') or str_value.startswith('{') or 
                          ':' in str_value or '#' in str_value or 
-                         str_value.startswith('*') or str_value.startswith('&') or
-                         str_value.startswith('/')) 
+                         str_value.startswith('*') or str_value.startswith('&'))
                     )
                     if needs_quote:
                         formatted_value = f'"{str_value}"'
@@ -977,49 +806,17 @@ def write_yaml_with_comments(file_path: Path, data: dict, comments: dict = None)
 
 def create_server_config_file(tport: int, cfg: dict) -> Path:
     """ساخت فایل کانفیگ YAML برای سرور"""
-    NETRIX_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    
-    direct_mode = cfg.get('direct', False)
-    
-    if direct_mode:
-        config_path = NETRIX_CONFIG_DIR / f"server_direct_{tport}.yaml"
-    else:
-        config_path = NETRIX_CONFIG_DIR / f"server_{tport}.yaml"
+    config_path = get_config_path(tport)
     
     transport = cfg.get('transport', 'tcpmux')
     profile = cfg.get('profile', 'balanced')
     
     yaml_data = {
         "mode": "server",
+        "listen": cfg.get('listen', f"0.0.0.0:{tport}"),
         "transport": transport,
         "psk": cfg.get('psk', '')
     }
-    
-    if direct_mode:
-        yaml_data["direct"] = True
-        yaml_data["connect"] = cfg.get('connect', '')
-        yaml_data["connection_pool"] = cfg.get('connection_pool', 8)
-        yaml_data["retry_interval"] = cfg.get("retry_interval", 3)
-        yaml_data["dial_timeout"] = cfg.get("dial_timeout", 10)
-        yaml_data["aggressive_pool"] = cfg.get("aggressive_pool", False)
-    else:
-        yaml_data["listen"] = cfg.get('listen', f"0.0.0.0:{tport}")
-    
-    if cfg.get("cert_file") and cfg.get("key_file"):
-        yaml_data["cert_file"] = cfg["cert_file"]
-        yaml_data["key_file"] = cfg["key_file"]
-        print(f"  {FG_GREEN}✅ Certificate files will be written to YAML: cert={cfg['cert_file']}, key={cfg['key_file']}{RESET}")
-    
-    if transport == "realitymux" and cfg.get("reality_sni") and cfg.get("reality_fingerprint"):
-        yaml_data["reality"] = {
-            "sni": cfg.get("reality_sni", "cloudflare.com"),
-            "fingerprint": cfg.get("reality_fingerprint", "chrome")
-        }
-        if cfg.get("reality_short_id"):
-            yaml_data["reality"]["short_id"] = cfg.get("reality_short_id")
-        if cfg.get("reality_public_key"):
-            yaml_data["reality"]["public_key"] = cfg.get("reality_public_key")
-        print(f"  {FG_GREEN}✅ REALITY config will be written to YAML: SNI={cfg.get('reality_sni')}, Fingerprint={cfg.get('reality_fingerprint')}{RESET}")
     
     yaml_data["profile"] = profile
     
@@ -1031,9 +828,6 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "frame_size": smux_default["frame_size"],
         "version": smux_default["version"],
     }
-    
-    if direct_mode:
-        yaml_data["smux"]["mux_con"] = cfg.get('mux_con', smux_default.get("mux_con", 8))
     
     if transport == "kcpmux":
         kcp_default = get_default_kcp_config(profile)
@@ -1064,25 +858,7 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         if "udp_data_slice_size" in buffer_config:
             yaml_data["advanced"]["udp_data_slice_size"] = buffer_config["udp_data_slice_size"]
     
-    if cfg.get("tls_insecure_skip_verify") is True:
-        yaml_data["advanced"]["tls_insecure_skip_verify"] = True
-    
-    if cfg.get("anti_dpi_delay_ms", 0) > 0:
-        yaml_data["advanced"]["anti_dpi_delay_ms"] = cfg.get("anti_dpi_delay_ms")
-    
-    if not direct_mode and cfg.get("stream_queue_size"):
-        yaml_data["advanced"]["stream_queue_size"] = cfg.get("stream_queue_size", 2048)
-    
     yaml_data["verbose"] = cfg.get("verbose", False)
-    
-    compression_cfg = cfg.get("compression_config", {})
-    yaml_data["compression"] = {
-        "enabled": compression_cfg.get("enabled", True), 
-        "algorithm": compression_cfg.get("algorithm", "lz4"), 
-        "level": compression_cfg.get("level", 0), 
-        "min_size": compression_cfg.get("min_size", 1024), 
-        "max_size": compression_cfg.get("max_size", 65536) 
-    }
     
     yaml_data["encryption"] = {
         "enabled": cfg.get("encryption_enabled", False),
@@ -1090,21 +866,20 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "key": cfg.get("encryption_key", "")
     }
     
-
-    _pad_max = min(cfg.get("stealth_padding_max", 128), 255)
-    _pad_min = min(cfg.get("stealth_padding_min", 0), 255)
-    if _pad_min > _pad_max:
-        _pad_min = _pad_max
     yaml_data["stealth"] = {
         "padding_enabled": cfg.get("stealth_padding", False),
-        "padding_min": _pad_min,
-        "padding_max": _pad_max,
+        "padding_min": 0,
+        "padding_max": cfg.get("stealth_padding_max", 128),
         "jitter_enabled": cfg.get("stealth_jitter", False),
-        "jitter_min_ms": cfg.get("stealth_jitter_min", 5),
-        "jitter_max_ms": cfg.get("stealth_jitter_max", 20)
+        "jitter_min_ms": 5,
+        "jitter_max_ms": 20
     }
 
     yaml_data["health_port"] = cfg.get('health_port', 19080)
+    
+    if cfg.get("cert_file") and cfg.get("key_file"):
+        yaml_data["cert_file"] = cfg["cert_file"]
+        yaml_data["key_file"] = cfg["key_file"]
     
     if "max_sessions" in cfg:
         yaml_data["max_sessions"] = cfg['max_sessions']
@@ -1112,10 +887,10 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
     if "heartbeat" in cfg:
         yaml_data["heartbeat"] = cfg['heartbeat']
     
-    tcp_ports_list = []
-    udp_ports_list = []
-    
     if cfg.get('maps'):
+        tcp_ports_list = []
+        udp_ports_list = []
+        
         for m in cfg['maps']:
             protocol = m.get('type', 'tcp')
             bind_parts = m['bind'].split(':')
@@ -1143,9 +918,11 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
                     tcp_ports_list.append(port_str)
                 elif protocol == "udp":
                     udp_ports_list.append(port_str)
-    
-    yaml_data["tcp_ports"] = tcp_ports_list
-    yaml_data["udp_ports"] = udp_ports_list
+        
+        if tcp_ports_list:
+            yaml_data["tcp_ports"] = tcp_ports_list
+        if udp_ports_list:
+            yaml_data["udp_ports"] = udp_ports_list
     
     tun_cfg = cfg.get("tun_config") or {}
     yaml_data["tun"] = {
@@ -1154,7 +931,7 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "local": tun_cfg.get("local", "10.200.0.1/30"),
         "mtu": tun_cfg.get("mtu", 1400),
         "routes": tun_cfg.get("routes", []),
-        "streams": tun_cfg.get("streams", 4),
+        "streams": tun_cfg.get("streams", 1),
         "forward_l2tp": tun_cfg.get("forward_l2tp", False),
         "l2tp_ports": tun_cfg.get("l2tp_ports", [500,4500,1701]),
         "l2tp_dest_ip": tun_cfg.get("l2tp_dest_ip", ""),
@@ -1178,36 +955,31 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "smux.frame_size": f"Frame size in bytes (default: {smux_default['frame_size']} = 32KB)",
         "smux.version": f"SMUX version (default: {smux_default['version']})",
         "advanced.tcp_nodelay": f"TCP NoDelay (default: true)",
-        "advanced.tcp_keepalive": f"TCP KeepAlive in seconds (default: 15 - تشخیص سریع‌تر dead connections)",
+        "advanced.tcp_keepalive": f"TCP KeepAlive in seconds (default: 30)",
         "advanced.tcp_read_buffer": f"TCP read buffer in bytes (default: 8388608 = 8MB)",
         "advanced.tcp_write_buffer": f"TCP write buffer in bytes (default: 8388608 = 8MB)",
         "advanced.cleanup_interval": f"Cleanup interval in seconds (default: 60)",
-        "advanced.session_timeout": f"Session timeout in seconds (default: 180 = 3 minutes - فقط برای sessions بدون heartbeat)",
+        "advanced.session_timeout": f"Session timeout in seconds (default: 120 = 2 minutes - فقط برای sessions بدون heartbeat)",
         "advanced.connection_timeout": f"Connection timeout in seconds (default: 600 = 10 minutes)",
         "advanced.stream_timeout": f"Stream max lifetime in seconds (default: 21600 = 6 hours)",
         "advanced.stream_idle_timeout": f"Stream idle timeout in seconds (default: 600 = 10 minutes)",
-        "advanced.max_udp_flows": f"Max UDP flows (default: 5000)",
-        "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 600 = 10 minutes)",
+        "advanced.max_connections": f"Max concurrent connections (default: 0 = use 5M limit, practically unlimited)",
+        "advanced.max_udp_flows": f"Max UDP flows (default: 100000 for 10K+ users)",
+        "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 7200 = 2 hours)",
         "advanced.tls_insecure_skip_verify": f"Skip TLS certificate verification (default: false - secure by default, can be enabled for self-signed certs)",
         "advanced.buffer_pool_size": f"Buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
         "advanced.large_buffer_pool_size": f"Large buffer pool size in bytes (default: 65791 = maxUDPDataLen+256, 0 = use default, configurable)",
         "advanced.udp_frame_pool_size": f"UDP frame pool size in bytes (default: 65791 = maxUDPDataLen+256, 0 = use default, configurable)",
         "advanced.udp_data_slice_size": f"UDP data slice size in bytes (default: 1500 = MTU, 0 = use default, configurable)",
-        "advanced.anti_dpi_delay_ms": "Anti-DPI delay in ms after connection (0=disabled, 50-500, applied on dialer; Direct=server, Reverse=client)",
-        "heartbeat": f"Heartbeat interval in seconds (default: 20, 0 = use default)",
+        "heartbeat": f"Heartbeat interval in seconds (default: 15, 0 = use default)",
         "verbose": f"Verbose logging (default: false)",
-        "compression.enabled": "Enable compression for bandwidth optimization (default: true - LZ4 enabled)",
-        "compression.algorithm": "Compression algorithm: 'lz4' (fastest, default), 'zstd' (best compression), 'snappy' (balanced)",
-        "compression.level": "Compression level (0 = fastest for LZ4, 1-19 for Zstd, default: 0)",
-        "compression.min_size": "Minimum packet size to compress in bytes (default: 1024 = 1KB)",
-        "compression.max_size": "Maximum frame size in bytes (default: 65536 = 64KB)",
         "encryption.enabled": "Enable AEAD encryption (anti-DPI)",
         "encryption.algorithm": "Encryption algorithm: 'chacha' (default) or 'aes-gcm' (faster with AES-NI)",
         "encryption.key": "Encryption key (hex 32 bytes or password, empty = use PSK)",
-        "stealth.padding_enabled": "Enable random padding (hides packet sizes; works with or without encryption)",
+        "stealth.padding_enabled": "Enable random padding (hides packet sizes)",
         "stealth.padding_min": "Minimum padding bytes (default: 0)",
-        "stealth.padding_max": "Maximum padding bytes (default: 128, max 255 protocol limit)",
-        "stealth.jitter_enabled": "Enable timing jitter (breaks timing patterns; works with or without encryption)",
+        "stealth.padding_max": "Maximum padding bytes (default: 128)",
+        "stealth.jitter_enabled": "Enable timing jitter (breaks timing patterns)",
         "stealth.jitter_min_ms": "Minimum jitter in ms (default: 5)",
         "stealth.jitter_max_ms": "Maximum jitter in ms (default: 20)",
         "tun.enabled": "Enable TUN mode (Layer 3 VPN)",
@@ -1215,14 +987,12 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         "tun.local": "Local IP address with CIDR (e.g., 10.200.0.1/30)",
         "tun.mtu": "MTU size (default: 1400)",
         "tun.routes": "Networks to route through TUN",
-        "tun.streams": "Number of parallel TUN streams (1-64, default: 4) - higher = better throughput",
+        "tun.streams": "Number of parallel TUN streams (1-64, default: 1) - higher = better throughput",
         "tun.forward_l2tp": "Auto-add iptables DNAT rules for L2TP/IPsec ports (500,4500,1701) on server",
         "tun.l2tp_ports": "List of UDP ports to auto-forward for L2TP/IPsec (default: [500, 4500, 1701])",
         "tun.l2tp_dest_ip": "Optional DNAT destination IP for L2TP/IPsec (empty = use tun.local IP)",
-        "tcp_ports": "TCP port mappings ( [\"443\", \"4000=5000\", \"500-567\"])",
-        "udp_ports": "UDP port mappings ( [\"500-567\", \"4500\"])",
-        "cert_file": "Path to TLS certificate file (for tlsmux and wssmux)",
-        "key_file": "Path to TLS private key file (for tlsmux and wssmux)",
+        "tcp_ports": "TCP port mappings (string format like backhole: [\"443\", \"4000=5000\", \"500-567\"])",
+        "udp_ports": "UDP port mappings (string format like backhole: [\"500-567\", \"4500\"])",
     }
     
     if transport == "kcpmux":
@@ -1250,57 +1020,28 @@ def create_client_config_file(cfg: dict) -> Path:
     """ساخت فایل کانفیگ YAML برای کلاینت"""
     NETRIX_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     
-    tport = 0
-    direct_mode = cfg.get('direct', False)
-    
-    if direct_mode:
-        listen_addr = cfg.get('listen', '')
-        if listen_addr and ':' in listen_addr:
-            tport = listen_addr.split(':')[-1]
-    else:
+    tport = cfg.get('tport', 0)
+    if not tport:
         paths = cfg.get('paths', [])
         if paths:
             addr = paths[0].get('addr', '')
             tport = addr.split(':')[-1] if ':' in addr else '0'
     
-    if direct_mode and tport:
-        config_path = NETRIX_CONFIG_DIR / f"client_direct_{tport}.yaml"
-    elif tport and str(tport) != '0':
+    if tport and tport != '0':
         config_path = NETRIX_CONFIG_DIR / f"client_{tport}.yaml"
     else:
         config_path = NETRIX_CONFIG_DIR / "client.yaml"
     
     profile = cfg.get('profile', 'balanced')
-    paths = cfg.get('paths', [])
     
     yaml_data = {
         "mode": "client",
         "psk": cfg.get('psk', '')
     }
     
-    if direct_mode:
-        yaml_data["direct"] = True
-        yaml_data["listen"] = cfg.get('listen', '')
-        yaml_data["transport"] = cfg.get('transport', 'tcpmux')
-        
-        transport = cfg.get('transport', 'tcpmux')
-        if transport == "realitymux" and cfg.get('reality_sni') and cfg.get('reality_fingerprint'):
-            yaml_data["reality"] = {
-                "sni": cfg.get('reality_sni', 'cloudflare.com'),
-                "fingerprint": cfg.get('reality_fingerprint', 'chrome')
-            }
-            if cfg.get('reality_short_id'):
-                yaml_data["reality"]["short_id"] = cfg.get('reality_short_id')
-            if cfg.get('reality_public_key'):
-                yaml_data["reality"]["public_key"] = cfg.get('reality_public_key')
-        
-        if cfg.get("cert_file") and cfg.get("key_file"):
-            yaml_data["cert_file"] = cfg["cert_file"]
-            yaml_data["key_file"] = cfg["key_file"]
-    
     yaml_data["profile"] = profile
     
-    if paths and not direct_mode:
+    if paths:
         yaml_data["paths"] = []
         for path in paths:
             path_transport = path.get('transport', 'tcpmux')
@@ -1312,30 +1053,15 @@ def create_client_config_file(cfg: dict) -> Path:
                 path_data["connection_pool"] = path['connection_pool']
             else:
                 path_data["connection_pool"] = 8
-            if 'stream_queue_size' in path:
-                path_data["stream_queue_size"] = path['stream_queue_size']
-            else:
-                path_data["stream_queue_size"] = 2048
             if path.get('retry_interval'):
                 path_data["retry_interval"] = path['retry_interval']
             if path.get('dial_timeout'):
                 path_data["dial_timeout"] = path['dial_timeout']
             if path.get('aggressive_pool'):
                 path_data["aggressive_pool"] = path['aggressive_pool']
-            if path_transport == "realitymux" and path.get('reality_sni') and path.get('reality_fingerprint'):
-                path_data["reality"] = {
-                    "sni": path.get('reality_sni', 'cloudflare.com'),
-                    "fingerprint": path.get('reality_fingerprint', 'chrome')
-                }
-                if path.get('reality_short_id'):
-                    path_data["reality"]["short_id"] = path.get('reality_short_id')
-                if path.get('reality_public_key'):
-                    path_data["reality"]["public_key"] = path.get('reality_public_key')
             yaml_data["paths"].append(path_data)
         
         main_transport = paths[0].get('transport', 'tcpmux')
-    elif direct_mode:
-        main_transport = cfg.get('transport', 'tcpmux')
     else:
         main_transport = 'tcpmux'
     
@@ -1346,12 +1072,10 @@ def create_client_config_file(cfg: dict) -> Path:
         "max_stream": smux_default["max_stream"],
         "frame_size": smux_default["frame_size"],
         "version": smux_default["version"],
-        "mux_con": cfg.get('mux_con', smux_default.get("mux_con", 8)) 
+        "mux_con": cfg.get('mux_con', smux_default.get("mux_con", 8))  # Fix: استفاده از mux_con از profile
     }
     
-
-    needs_kcp = any(p.get('transport') == 'kcpmux' for p in paths) or (direct_mode and main_transport == 'kcpmux')
-    if needs_kcp:
+    if any(p.get('transport') == 'kcpmux' for p in paths):
         kcp_default = get_default_kcp_config(profile)
         yaml_data["kcp"] = {
             "nodelay": kcp_default["nodelay"],
@@ -1364,28 +1088,15 @@ def create_client_config_file(cfg: dict) -> Path:
         }
     
     advanced_default = get_default_advanced_config(main_transport)
-    advanced_default.pop("stream_queue_size", None)
     yaml_data["advanced"] = {}
     for key, value in advanced_default.items():
         if key != "verbose":
             yaml_data["advanced"][key] = value
     
-    if direct_mode:
-        yaml_data["advanced"]["stream_queue_size"] = cfg.get("stream_queue_size", 2048)
-    
     if "tls_insecure_skip_verify" in cfg:
         yaml_data["advanced"]["tls_insecure_skip_verify"] = cfg["tls_insecure_skip_verify"]
     
     yaml_data["verbose"] = cfg.get("verbose", False)
-    
-    compression_cfg = cfg.get("compression_config", {})
-    yaml_data["compression"] = {
-        "enabled": compression_cfg.get("enabled", True),  
-        "algorithm": compression_cfg.get("algorithm", "lz4"),  
-        "level": compression_cfg.get("level", 0), 
-        "min_size": compression_cfg.get("min_size", 1024),  
-        "max_size": compression_cfg.get("max_size", 65536)  
-    }
     
     yaml_data["encryption"] = {
         "enabled": cfg.get("encryption_enabled", False),
@@ -1393,17 +1104,13 @@ def create_client_config_file(cfg: dict) -> Path:
         "key": cfg.get("encryption_key", "")
     }
     
-    _pad_max = min(cfg.get("stealth_padding_max", 128), 255)
-    _pad_min = min(cfg.get("stealth_padding_min", 0), 255)
-    if _pad_min > _pad_max:
-        _pad_min = _pad_max
     yaml_data["stealth"] = {
         "padding_enabled": cfg.get("stealth_padding", False),
-        "padding_min": _pad_min,
-        "padding_max": _pad_max,
+        "padding_min": 0,
+        "padding_max": cfg.get("stealth_padding_max", 128),
         "jitter_enabled": cfg.get("stealth_jitter", False),
-        "jitter_min_ms": cfg.get("stealth_jitter_min", 5),
-        "jitter_max_ms": cfg.get("stealth_jitter_max", 20)
+        "jitter_min_ms": 5,
+        "jitter_max_ms": 20
     }
     
     yaml_data["health_port"] = cfg.get('health_port', 19080)
@@ -1421,9 +1128,6 @@ def create_client_config_file(cfg: dict) -> Path:
             yaml_data["advanced"]["udp_frame_pool_size"] = buffer_config["udp_frame_pool_size"]
         if "udp_data_slice_size" in buffer_config:
             yaml_data["advanced"]["udp_data_slice_size"] = buffer_config["udp_data_slice_size"]
-    
-    if cfg.get("anti_dpi_delay_ms", 0) > 0:
-        yaml_data["advanced"]["anti_dpi_delay_ms"] = cfg.get("anti_dpi_delay_ms")
     
     tun_cfg = cfg.get("tun_config") or {}
     yaml_data["tun"] = {
@@ -1454,36 +1158,31 @@ def create_client_config_file(cfg: dict) -> Path:
         "smux.version": f"SMUX version (default: {smux_default['version']})",
         "smux.mux_con": f"Number of multiplexed connections (default: from profile - balanced=8, aggressive=16, latency=4, cpu-efficient=4)",
         "advanced.tcp_nodelay": f"TCP NoDelay (default: true)",
-        "advanced.tcp_keepalive": f"TCP KeepAlive in seconds (default: 15 - تشخیص سریع‌تر dead connections)",
+        "advanced.tcp_keepalive": f"TCP KeepAlive in seconds (default: 30)",
         "advanced.tcp_read_buffer": f"TCP read buffer in bytes (default: 8388608 = 8MB)",
         "advanced.tcp_write_buffer": f"TCP write buffer in bytes (default: 8388608 = 8MB)",
         "advanced.cleanup_interval": f"Cleanup interval in seconds (default: 60)",
-        "advanced.session_timeout": f"Session timeout in seconds (default: 180 = 3 minutes - فقط برای sessions بدون heartbeat)",
+        "advanced.session_timeout": f"Session timeout in seconds (default: 120 = 2 minutes - فقط برای sessions بدون heartbeat)",
         "advanced.connection_timeout": f"Connection timeout in seconds (default: 600 = 10 minutes)",
         "advanced.stream_timeout": f"Stream max lifetime in seconds (default: 21600 = 6 hours)",
         "advanced.stream_idle_timeout": f"Stream idle timeout in seconds (default: 600 = 10 minutes)",
-        "advanced.max_udp_flows": f"Max UDP flows (default: 5000)",
-        "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 600 = 10 minutes)",
+        "advanced.max_connections": f"Max concurrent connections (default: 0 = use 5M limit, practically unlimited)",
+        "advanced.max_udp_flows": f"Max UDP flows (default: 100000 for 10K+ users)",
+        "advanced.udp_flow_timeout": f"UDP flow timeout in seconds (default: 7200 = 2 hours)",
         "advanced.tls_insecure_skip_verify": f"Skip TLS certificate verification (default: false - secure by default, can be enabled for self-signed certs)",
         "advanced.buffer_pool_size": f"Buffer pool size in bytes (default: 65536 = 64KB, 0 = use default, configurable)",
         "advanced.large_buffer_pool_size": f"Large buffer pool size in bytes (default: 65791 = maxUDPDataLen+256, 0 = use default, configurable)",
         "advanced.udp_frame_pool_size": f"UDP frame pool size in bytes (default: 65791 = maxUDPDataLen+256, 0 = use default, configurable)",
         "advanced.udp_data_slice_size": f"UDP data slice size in bytes (default: 1500 = MTU, 0 = use default, configurable)",
-        "advanced.anti_dpi_delay_ms": "Anti-DPI delay in ms after connection (0=disabled, 50-500, applied on dialer; Direct=server, Reverse=client)",
-        "heartbeat": f"Heartbeat interval in seconds (default: 20, 0 = use default)",
+        "heartbeat": f"Heartbeat interval in seconds (default: 15, 0 = use default)",
         "verbose": f"Verbose logging (default: false)",
-        "compression.enabled": "Enable compression for bandwidth optimization (default: true - LZ4 enabled)",
-        "compression.algorithm": "Compression algorithm: 'lz4' (fastest, default), 'zstd' (best compression), 'snappy' (balanced)",
-        "compression.level": "Compression level (0 = fastest for LZ4, 1-19 for Zstd, default: 0)",
-        "compression.min_size": "Minimum packet size to compress in bytes (default: 1024 = 1KB)",
-        "compression.max_size": "Maximum frame size in bytes (default: 65536 = 64KB)",
         "encryption.enabled": "Enable AEAD encryption (anti-DPI)",
         "encryption.algorithm": "Encryption algorithm: 'chacha' (default) or 'aes-gcm' (faster with AES-NI)",
         "encryption.key": "Encryption key (hex 32 bytes or password, empty = use PSK)",
-        "stealth.padding_enabled": "Enable random padding (hides packet sizes; works with or without encryption)",
+        "stealth.padding_enabled": "Enable random padding (hides packet sizes)",
         "stealth.padding_min": "Minimum padding bytes (default: 0)",
-        "stealth.padding_max": "Maximum padding bytes (default: 128, max 255 protocol limit)",
-        "stealth.jitter_enabled": "Enable timing jitter (breaks timing patterns; works with or without encryption)",
+        "stealth.padding_max": "Maximum padding bytes (default: 128)",
+        "stealth.jitter_enabled": "Enable timing jitter (breaks timing patterns)",
         "stealth.jitter_min_ms": "Minimum jitter in ms (default: 5)",
         "stealth.jitter_max_ms": "Maximum jitter in ms (default: 20)",
         "tun.enabled": "Enable TUN mode (Layer 3 VPN)",
@@ -1491,7 +1190,7 @@ def create_client_config_file(cfg: dict) -> Path:
         "tun.local": "Local IP address with CIDR (e.g., 10.200.0.2/30)",
         "tun.mtu": "MTU size (default: 1400)",
         "tun.routes": "Networks to route through TUN",
-        "tun.streams": "Number of parallel TUN streams (1-64, default: 4) - higher = better throughput",
+        "tun.streams": "Number of parallel TUN streams (1-64, default: 1) - higher = better throughput",
         "proxy_protocol.enabled": "Enable PROXY Protocol (forwards real client IP to backend services) - must match server settings",
         "proxy_protocol.version": "PROXY Protocol version: 'v1' (text-based) or 'v2' (binary, default: v1) - must match server settings",
     }
@@ -1542,8 +1241,6 @@ def get_service_status(config_path: Path) -> Optional[str]:
         if result.returncode == 0:
             return result.stdout.strip()
         return "inactive"
-    except KeyboardInterrupt:
-        exit_script()
     except subprocess.TimeoutExpired:
         return "unknown"
     except Exception:
@@ -1563,8 +1260,6 @@ def get_service_pid(config_path: Path) -> Optional[int]:
             pid = int(result.stdout.strip())
             if pid > 0:
                 return pid
-    except KeyboardInterrupt:
-        exit_script()
     except subprocess.TimeoutExpired:
         return None
     except Exception:
@@ -1587,18 +1282,9 @@ def list_tunnels() -> List[Dict[str,Any]]:
             if not cfg or cfg.get('mode') != 'server':
                 continue
             
+            listen = cfg.get('listen', '')
+            tport = listen.split(':')[-1] if ':' in listen else ''
             transport = cfg.get('transport', 'tcpmux')
-            direct_mode = cfg.get('direct', False)
-            
-            if direct_mode:
-                connect = cfg.get('connect', '')
-                tport = connect.split(':')[-1] if ':' in connect else ''
-                target_ip = connect.rsplit(':', 1)[0] if ':' in connect else connect
-                summary = f"server DIRECT → {target_ip}:{tport} ({transport})"
-            else:
-                listen = cfg.get('listen', '')
-                tport = listen.split(':')[-1] if ':' in listen else ''
-                summary = f"server port={tport} transport={transport}"
             
             status = get_service_status(config_file)
             alive = (status == "active")
@@ -1609,14 +1295,11 @@ def list_tunnels() -> List[Dict[str,Any]]:
                 "mode": "server",
                 "tport": tport,
                 "transport": transport,
-                "direct": direct_mode,
-                "summary": summary,
+                "summary": f"server port={tport} transport={transport}",
                 "pid": pid,
                 "alive": alive,
                 "cfg": cfg
             })
-        except KeyboardInterrupt:
-            exit_script()
         except Exception:
             continue
     
@@ -1630,23 +1313,15 @@ def list_tunnels() -> List[Dict[str,Any]]:
             if not cfg or cfg.get('mode') != 'client':
                 continue
             
-            direct_mode = cfg.get('direct', False)
-            
-            if direct_mode:
-                listen = cfg.get('listen', '')
-                tport = listen.split(':')[-1] if ':' in listen else ''
-                transport = cfg.get('transport', 'tcpmux')
-                summary = f"client DIRECT listen={tport} ({transport})"
+            paths = cfg.get('paths', [])
+            if paths:
+                first_path = paths[0]
+                addr = first_path.get('addr', 'unknown')
+                transport = first_path.get('transport', 'tcpmux')
+                connection_pool = first_path.get('connection_pool', 1)
+                summary = f"client {transport}://{addr} ({connection_pool}x)"
             else:
-                paths = cfg.get('paths', [])
-                if paths:
-                    first_path = paths[0]
-                    addr = first_path.get('addr', 'unknown')
-                    transport = first_path.get('transport', 'tcpmux')
-                    connection_pool = first_path.get('connection_pool', 1)
-                    summary = f"client {transport}://{addr} ({connection_pool}x)"
-                else:
-                    summary = "client (unknown)"
+                summary = "client (unknown)"
             
             status = get_service_status(config_file)
             alive = (status == "active")
@@ -1655,14 +1330,11 @@ def list_tunnels() -> List[Dict[str,Any]]:
             items.append({
                 "config_path": config_file,
                 "mode": "client",
-                "direct": direct_mode,
                 "summary": summary,
                 "pid": pid,
                 "alive": alive,
                 "cfg": cfg
             })
-        except KeyboardInterrupt:
-            exit_script()
         except Exception:
             continue
     
@@ -1730,51 +1402,17 @@ def stop_tunnel(config_path: Path) -> bool:
         return False
 
 def restart_tunnel(config_path: Path) -> bool:
-    """ریستارت تانل از طریق systemd service - با stop/start جداگانه برای cleanup کامل"""
+    """ریستارت تانل از طریق systemd service"""
     service_name = f"netrix-{config_path.stem}"
     try:
-        subprocess.run(
-            ["systemctl", "daemon-reload"],
+        result = subprocess.run(
+            ["systemctl", "restart", service_name],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=15 
         )
-        
-        stop_result = subprocess.run(
-            ["systemctl", "stop", service_name],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        time.sleep(1)
-        
-        check_result = subprocess.run(
-            ["systemctl", "is-active", service_name],
-            capture_output=True,
-            text=True,
-            timeout=3
-        )
-        
-        start_result = subprocess.run(
-            ["systemctl", "start", service_name],
-            capture_output=True,
-            text=True,
-            timeout=15
-        )
-        
-        if start_result.returncode == 0:
-            time.sleep(0.5)
-            verify_result = subprocess.run(
-                ["systemctl", "is-active", service_name],
-                capture_output=True,
-                text=True,
-                timeout=3
-            )
-            if verify_result.returncode == 0 and verify_result.stdout.strip() == "active":
-                return True
-            else:
-                return False
+        if result.returncode == 0:
+            return True
         else:
             try:
                 check_result = subprocess.run(
@@ -1880,15 +1518,7 @@ def disable_service_for_tunnel(config_path: Path) -> bool:
         return False
 
 def cleanup_iptables_rules(config_path: Path) -> bool:
-    """
-    پاک کردن iptables rules، routes و IP address برای تانل (L2TP forwarding)
-    
-    ⚠️ مهم: این تابع فقط chain ها و rules مربوط به خود tunnel را پاک می‌کند.
-    chain ها و rules دیگری که کاربر دستی روی سرور تنظیم کرده، دست‌نخورده باقی می‌مانند.
-    
-    فقط chain هایی با prefix 'NX_L2TP_PRE_' و 'NX_L2TP_POST_' پاک می‌شوند که
-    توسط خود tunnel ساخته شده‌اند.
-    """
+    """پاک کردن iptables rules، routes و IP address برای تانل (L2TP forwarding)"""
     try:
         cfg = parse_yaml_config(config_path)
         if not cfg:
@@ -1936,32 +1566,14 @@ def cleanup_iptables_rules(config_path: Path) -> bool:
         except Exception:
             pass
         
-        try:
-            result = subprocess.run(
-                ["iptables-save", "-t", "mangle"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                lines = result.stdout.split('\n')
-                for i, line in enumerate(lines):
-                    if f"-o {tun_name}" in line and "TCPMSS" in line and "--set-mss" in line:
-                        pass  
-        except Exception:
-            pass 
 
         if tun_cfg.get("forward_l2tp", False):
             safe_name = ""
             for c in tun_name:
-                if ('a' <= c <= 'z') or ('A' <= c <= 'Z') or ('0' <= c <= '9') or c == '_':
+                if c.isalnum() or c == '_':
                     safe_name += c
                 else:
                     safe_name += '_'
-            
-            safe_name = safe_name.strip()
-            if not safe_name:
-                safe_name = "netrix0"
 
             hash_input = f"l2tp:{safe_name}"
             hash_bytes = hashlib.sha256(hash_input.encode()).digest()
@@ -2068,7 +1680,8 @@ def start_configure_menu():
         try:
             choice = input(f"  {BOLD}{FG_CYAN}> {RESET}").strip()
         except KeyboardInterrupt:
-            exit_script()
+            print("\n")
+            return
         
         if choice == "0":
             return
@@ -2077,13 +1690,13 @@ def start_configure_menu():
                 create_server_tunnel()
                 return
             except UserCancelled:
-                exit_script()
+                continue
         elif choice == "2":
             try:
                 create_client_tunnel()
                 return
             except UserCancelled:
-                exit_script()
+                continue
         else:
             c_err("Invalid choice.")
             pause()
@@ -2119,72 +1732,14 @@ def create_server_tunnel():
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
-        print(f"  {BOLD}{FG_CYAN}Connection Mode:{RESET}")
-        print(f"  {FG_CYAN}1){RESET} {FG_GREEN}Reverse{RESET} (Normal - Kharej connects to Iran) {FG_WHITE}[Default]{RESET}")
-        print(f"  {FG_CYAN}2){RESET} {FG_YELLOW}Direct{RESET} (Iran connects to Kharej - for routing issues to Iran)")
-        connection_mode = ask_int(f"\n  {BOLD}Select connection mode:{RESET}", min_=1, max_=2, default=1)
-        direct_mode = (connection_mode == 2)
-        
-        if direct_mode:
-            print(f"\n  {FG_YELLOW}📡 Direct Mode Selected:{RESET} {FG_WHITE}Iran server will connect to Kharej client{RESET}")
-            print(f"  {FG_WHITE}Note: Kharej client must be listening before Iran server starts{RESET}")
-        else:
-            print(f"\n  {FG_GREEN}✅ Reverse Mode Selected:{RESET} {FG_WHITE}Kharej clients will connect to Iran server{RESET}")
-        
-        print(f"\n  {BOLD}{FG_CYAN}Transport Types:{RESET}")
+        print(f"  {BOLD}{FG_CYAN}Transport Types:{RESET}")
         print(f"  {FG_CYAN}1){RESET} {FG_GREEN}tcpmux{RESET} (TCP with smux)")
-        print(f"  {FG_CYAN}2){RESET} {FG_GREEN}tlsmux{RESET} (TLS with smux - lighter than WS/WSS)")
-        print(f"  {FG_CYAN}3){RESET} {FG_GREEN}realitymux{RESET} (REALITY - TLS camouflage with fingerprint mimic)")
-        print(f"  {FG_CYAN}4){RESET} {FG_GREEN}kcpmux{RESET} (KCP with smux)")
-        print(f"  {FG_CYAN}5){RESET} {FG_GREEN}wsmux{RESET} (WebSocket with smux)")
-        print(f"  {FG_CYAN}6){RESET} {FG_GREEN}wssmux{RESET} (WebSocket Secure with smux)")
-        transport_choice = ask_int(f"\n  {BOLD}Select transport:{RESET}", min_=1, max_=6, default=1)
-        transports = {1: "tcpmux", 2: "tlsmux", 3: "realitymux", 4: "kcpmux", 5: "wsmux", 6: "wssmux"}
+        print(f"  {FG_CYAN}2){RESET} {FG_GREEN}kcpmux{RESET} (KCP with smux)")
+        print(f"  {FG_CYAN}3){RESET} {FG_GREEN}wsmux{RESET} (WebSocket with smux)")
+        print(f"  {FG_CYAN}4){RESET} {FG_GREEN}wssmux{RESET} (WebSocket Secure with smux)")
+        transport_choice = ask_int(f"\n  {BOLD}Select transport:{RESET}", min_=1, max_=4, default=1)
+        transports = {1: "tcpmux", 2: "kcpmux", 3: "wsmux", 4: "wssmux"}
         transport = transports[transport_choice]
-        
-        reality_sni = ""
-        reality_fingerprint = ""
-        if transport == "realitymux" and direct_mode:
-            print(f"\n  {BOLD}🎭 REALITY Configuration:{RESET}")
-            print(f"  {FG_WHITE}REALITY uses TLS camouflage with fingerprint mimic to bypass DPI{RESET}")
-            print(f"  {FG_YELLOW}Direct Mode:{RESET} {FG_WHITE}Server will connect to client with REALITY{RESET}")
-            print(f"  {FG_WHITE}SNI spoofing: Server will send spoofed SNI when connecting{RESET}")
-            print(f"  {FG_WHITE}Fingerprint mimic: Server will mimic a real browser's TLS fingerprint{RESET}")
-            
-            print(f"\n  {BOLD}SNI Spoofing Target:{RESET}")
-            print(f"  {FG_CYAN}1){RESET} {FG_GREEN}cloudflare.com{RESET} (Recommended - most common)")
-            print(f"  {FG_CYAN}2){RESET} {FG_GREEN}google.com{RESET}")
-            print(f"  {FG_CYAN}3){RESET} {FG_GREEN}microsoft.com{RESET}")
-            print(f"  {FG_CYAN}4){RESET} {FG_GREEN}apple.com{RESET}")
-            print(f"  {FG_CYAN}5){RESET} {FG_YELLOW}random{RESET} (Changes per connection - maximum stealth)")
-            print(f"  {FG_CYAN}6){RESET} {FG_YELLOW}Custom{RESET}")
-            sni_choice = ask_int(f"  {BOLD}Select SNI target:{RESET}", min_=1, max_=6, default=5) 
-            sni_options = {1: "cloudflare.com", 2: "google.com", 3: "microsoft.com", 4: "apple.com", 5: "random"}
-            if sni_choice == 6:
-                reality_sni = ask_nonempty(f"  {BOLD}Enter custom SNI:{RESET}")
-            else:
-                reality_sni = sni_options[sni_choice]
-            
-            print(f"\n  {BOLD}TLS Fingerprint:{RESET}")
-            print(f"  {FG_WHITE}Select which browser's TLS fingerprint to mimic:{RESET}")
-            print(f"  {FG_CYAN}1){RESET} {FG_GREEN}Chrome{RESET} (Recommended - most common)")
-            print(f"  {FG_CYAN}2){RESET} {FG_GREEN}Firefox{RESET}")
-            print(f"  {FG_CYAN}3){RESET} {FG_GREEN}Safari{RESET}")
-            print(f"  {FG_CYAN}4){RESET} {FG_GREEN}Edge{RESET}")
-            print(f"  {FG_CYAN}5){RESET} {FG_GREEN}iOS{RESET}")
-            print(f"  {FG_CYAN}6){RESET} {FG_GREEN}Android{RESET}")
-            print(f"  {FG_CYAN}7){RESET} {FG_YELLOW}random{RESET} (Changes per connection - maximum stealth)")
-            fingerprint_choice = ask_int(f"  {BOLD}Select fingerprint:{RESET}", min_=1, max_=7, default=7)
-            fingerprint_options = {1: "chrome", 2: "firefox", 3: "safari", 4: "edge", 5: "ios", 6: "android", 7: "random"}
-            reality_fingerprint = fingerprint_options[fingerprint_choice]
-            
-            c_ok(f"  ✅ REALITY configured: SNI={reality_sni}, Fingerprint={reality_fingerprint}")
-        elif transport == "realitymux" and not direct_mode:
-            print(f"\n  {BOLD}🎭 REALITY Configuration:{RESET}")
-            print(f"  {FG_GREEN}Reverse Mode:{RESET} {FG_WHITE}Server will listen and accept REALITY connections{RESET}")
-            print(f"  {FG_WHITE}Note: Server accepts any SNI from clients (no configuration needed){RESET}")
-            print(f"  {FG_WHITE}Clients will configure their own SNI and fingerprint settings{RESET}")
-            c_ok(f"  ✅ REALITY server will accept connections with any SNI")
         
         print(f"\n  {BOLD}{FG_CYAN}Server Configuration:{RESET}")
         
@@ -2197,55 +1752,43 @@ def create_server_tunnel():
             print(f"  {FG_YELLOW}⚠️  IPv6 is NOT available on this system (disabled or not supported){RESET}")
             print(f"  {FG_WHITE}Server will listen on IPv4 only{RESET}")
         
-        listen_addr = ""
-        connect_addr = ""
-        tport = 0
-        connection_pool = 8  
-        mux_con = 8 
-        
-        if direct_mode:
-            print(f"\n  {BOLD}{FG_CYAN}Connection Settings:{RESET}")
-            print(f"  {FG_WHITE}IPv4 example: 1.2.3.4{RESET}")
-            print(f"  {FG_WHITE}IPv6 example: 2001:db8::1 or fd00::1{RESET}")
-            kharej_ip = ask_nonempty(f"  {BOLD}Kharej Client Ip:{RESET}")
+        while True:
             tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-            if ':' in kharej_ip and not kharej_ip.startswith('['):
-                connect_addr = f"[{kharej_ip}]:{tport}"
-                print(f"  {FG_GREEN}✅ IPv6 detected, formatted as: {connect_addr}{RESET}")
-            else:
-                connect_addr = f"{kharej_ip}:{tport}"
+            if is_port_in_use(tport):
+                c_warn(f"  ⚠️  Port {FG_YELLOW}{tport}{RESET} is already in use!")
+                if not ask_yesno(f"  {BOLD}Continue anyway?{RESET}", default=False):
+                    continue
+            break
+        
+        if use_ipv6:
+            listen_addr = f"[::]:{tport}"
         else:
-            while True:
-                tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-                if is_port_in_use(tport):
-                    c_warn(f"  ⚠️  Port {FG_YELLOW}{tport}{RESET} is already in use!")
-                    if not ask_yesno(f"  {BOLD}Continue anyway?{RESET}", default=False):
-                        continue
-                break
-            
-            if use_ipv6:
-                listen_addr = f"[::]:{tport}"
-            else:
-                listen_addr = f"0.0.0.0:{tport}"
+            listen_addr = f"0.0.0.0:{tport}"
         
         print(f"\n  {BOLD}{FG_CYAN}Security Settings:{RESET}")
         psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}")
         
-        encryption_config = configure_encryption()
-        encryption_enabled = encryption_config["enabled"]
-        encryption_algorithm = encryption_config["algorithm"]
-        encryption_key = encryption_config["key"]
+        encryption_enabled = ask_yesno(f"  {BOLD}Enable encryption?{RESET} {FG_WHITE}(anti-DPI){RESET}", default=False)
+        encryption_key = ""
+        encryption_algorithm = "chacha"
+        stealth_padding = False
+        stealth_padding_max = 0
+        stealth_jitter = False
         
-        stealth_config = configure_stealth()
-        stealth_padding = stealth_config["padding_enabled"]
-        stealth_padding_min = stealth_config["padding_min"]
-        stealth_padding_max = stealth_config["padding_max"]
-        stealth_jitter = stealth_config["jitter_enabled"]
-        stealth_jitter_min = stealth_config["jitter_min_ms"]
-        stealth_jitter_max = stealth_config["jitter_max_ms"]
-        
-        anti_dpi_delay_ms = configure_anti_dpi()
-        
+        if encryption_enabled:
+            print(f"\n  {BOLD}{FG_CYAN}Encryption Algorithm:{RESET}")
+            print(f"  {FG_BLUE}1){RESET} {FG_GREEN}ChaCha20-Poly1305{RESET} {FG_WHITE}(default - fast on all CPUs){RESET}")
+            print(f"  {FG_BLUE}2){RESET} {FG_GREEN}AES-256-GCM{RESET} {FG_WHITE}(faster with AES-NI hardware){RESET}")
+            algo_choice = ask_int(f"  {BOLD}Select algorithm:{RESET}", min_=1, max_=2, default=1)
+            encryption_algorithm = "chacha" if algo_choice == 1 else "aes-gcm"
+            
+            print(f"  {FG_WHITE}Note: Leave empty to use PSK as encryption key{RESET}")
+            try:
+                encryption_key = input(f"  {BOLD}Encryption Key:{RESET} {FG_WHITE}(empty = use PSK){RESET} ").strip()
+            except KeyboardInterrupt:
+                print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                raise UserCancelled()
+            
         print(f"\n  {BOLD}{FG_CYAN}Performance Profiles:{RESET}")
         print(f"  {FG_BLUE}1){RESET} {FG_GREEN}balanced{RESET} {FG_WHITE}(default - best overall){RESET}")
         print(f"  {FG_BLUE}2){RESET} {FG_GREEN}aggressive{RESET} {FG_WHITE}(high throughput, more CPU){RESET}")
@@ -2254,20 +1797,6 @@ def create_server_tunnel():
         profile_choice = ask_int(f"\n  {BOLD}Select profile:{RESET}", min_=1, max_=4, default=1)
         profiles = {1: "balanced", 2: "aggressive", 3: "latency", 4: "cpu-efficient"}
         profile = profiles[profile_choice]
-        
-        stream_queue_size = 2048 
-        if direct_mode:
-            print(f"\n  {BOLD}{FG_CYAN}Connection Pool Settings:{RESET}")
-            smux_default = get_default_smux_config(profile)
-            default_mux_con = smux_default.get("mux_con", 8)
-            connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-16){RESET}", min_=1, max_=64, default=8)
-            mux_con = ask_int(f"  {BOLD}Mux Con:{RESET} {FG_WHITE}(recommended: {default_mux_con} for {profile} profile){RESET}", min_=1, max_=32, default=default_mux_con)
-            retry_interval = ask_int(f"  {BOLD}Retry Interval:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=3)
-            dial_timeout = ask_int(f"  {BOLD}Dial Timeout:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=10)
-            aggressive_pool = ask_yesno(f"  {BOLD}Aggressive Pool?{RESET} {FG_WHITE}(faster reconnect){RESET}", default=False)
-        else:
-            print(f"\n  {BOLD}{FG_CYAN}Server Queue Settings:{RESET}")
-            stream_queue_size = ask_int(f"  {BOLD}Stream Queue Size:{RESET} {FG_WHITE}(default: 2048){RESET}", min_=128, max_=65536, default=2048)
         
         maps = []
         print(f"\n  {BOLD}{FG_CYAN}Port Mappings:{RESET} {FG_WHITE}(Press Enter to skip){RESET}")
@@ -2286,7 +1815,8 @@ def create_server_tunnel():
         try:
             tcp_input = input(f"\n  {BOLD}TCP Ports:{RESET} ").strip()
         except KeyboardInterrupt:
-            exit_script()
+            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+            raise UserCancelled()
         
         if tcp_input:
             try:
@@ -2300,7 +1830,8 @@ def create_server_tunnel():
         try:
             udp_input = input(f"  {BOLD}UDP Ports:{RESET} ").strip()
         except KeyboardInterrupt:
-            exit_script()
+            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+            raise UserCancelled()
         
         if udp_input:
             try:
@@ -2319,11 +1850,11 @@ def create_server_tunnel():
         
         cert_file = None
         key_file = None
-        if transport in ("tlsmux", "wssmux", "realitymux") and not direct_mode:
-            print(f"\n  {BOLD}🔐 TLS/REALITY Certificate (Reverse – server listens):{RESET}")
-            print(f"  {FG_GREEN}1){RESET} Get new certificate (Let's Encrypt) {FG_WHITE}[Default – recommended]{RESET}")
+        if transport == "wssmux":
+            print(f"\n  {BOLD}🔐 TLS Certificate Configuration:{RESET}")
+            print(f"  {FG_GREEN}1){RESET} Get new certificate (Let's Encrypt) - Recommended")
             print(f"  {FG_BLUE}2){RESET} Use existing certificate (provide file paths)")
-            print(f"  {FG_YELLOW}3){RESET} Self-signed (test only, auto-generated)")
+            print(f"  {FG_YELLOW}3){RESET} Use test certificate (self-signed, auto-generated)")
             cert_choice = ask_int("\nSelect certificate type", min_=1, max_=3, default=1)
             
             if cert_choice == 1:
@@ -2331,21 +1862,23 @@ def create_server_tunnel():
                     try:
                         domain = input(f"\n  {BOLD}{FG_GREEN}Enter your domain:{RESET} {FG_WHITE}(e.g., example.com or sub.example.com){RESET} ").strip()
                     except KeyboardInterrupt:
-                        exit_script()
+                        print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                        raise UserCancelled()
                     if not domain:
                         c_err("  Domain is required!")
                         if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                            exit_script()
+                            raise UserCancelled()
                         continue
                     
                     try:
                         email = input(f"  {BOLD}{FG_GREEN}Enter your email:{RESET} {FG_WHITE}(for Let's Encrypt){RESET} ").strip()
                     except KeyboardInterrupt:
-                        exit_script()
+                        print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                        raise UserCancelled()
                     if not email:
                         c_err("  Email is required!")
                         if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                            exit_script()
+                            raise UserCancelled()
                         continue
                     
                     cert_file, key_file = get_certificate_with_acme(domain, email, tport)
@@ -2357,9 +1890,10 @@ def create_server_tunnel():
                         try:
                             retry_choice = input(f"\n  {BOLD}Select option:{RESET} ").strip()
                         except KeyboardInterrupt:
-                            exit_script()
+                            print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                            raise UserCancelled()
                         if retry_choice != "1":
-                            exit_script()
+                            raise UserCancelled()
                     else:
                         c_ok(f"  ✅ Real certificate obtained: {FG_GREEN}{cert_file}{RESET}")
                         break 
@@ -2369,35 +1903,37 @@ def create_server_tunnel():
                     try:
                         cert_path = input(f"\n  {BOLD}{FG_GREEN}Enter certificate file path:{RESET} {FG_WHITE}(e.g., /root/cert.crt){RESET} ").strip()
                     except KeyboardInterrupt:
-                        exit_script()
+                        print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                        raise UserCancelled()
                     if not cert_path:
                         c_err("  Certificate file path is required!")
                         if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                            exit_script()
+                            raise UserCancelled()
                         continue
                     
                     cert_path_obj = Path(cert_path)
                     if not cert_path_obj.exists():
                         c_err(f"  Certificate file not found: {FG_RED}{cert_path}{RESET}")
                         if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                            exit_script()
+                            raise UserCancelled()
                         continue
                     
                     try:
                         key_path = input(f"  {BOLD}{FG_GREEN}Enter private key file path:{RESET} {FG_WHITE}(e.g., /root/private.key){RESET} ").strip()
                     except KeyboardInterrupt:
-                        exit_script()
+                        print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                        raise UserCancelled()
                     if not key_path:
                         c_err("  Private key file path is required!")
                         if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                            exit_script()
+                            raise UserCancelled()
                         continue
                     
                     key_path_obj = Path(key_path)
                     if not key_path_obj.exists():
                         c_err(f"  Private key file not found: {FG_RED}{key_path}{RESET}")
                         if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                            exit_script()
+                            raise UserCancelled()
                         continue
                     
                     try:
@@ -2406,7 +1942,7 @@ def create_server_tunnel():
                             if "BEGIN CERTIFICATE" not in cert_content:
                                 c_err("  Invalid certificate file format!")
                                 if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                                    exit_script()
+                                    raise UserCancelled()
                                 continue
                         
                         with open(key_path_obj, 'r') as f:
@@ -2414,7 +1950,7 @@ def create_server_tunnel():
                             if "BEGIN" not in key_content or "PRIVATE KEY" not in key_content:
                                 c_err("  Invalid private key file format!")
                                 if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                                    exit_script()
+                                    raise UserCancelled()
                                 continue
                         
                         cert_file = str(cert_path_obj)
@@ -2422,47 +1958,22 @@ def create_server_tunnel():
                         c_ok(f"  ✅ Certificate files validated: {FG_GREEN}{cert_file}{RESET}")
                         break
                     except UserCancelled:
-                        exit_script()
+                        raise
                     except Exception as e:
                         c_err(f"Error reading certificate files: {e}")
                         if not ask_yesno("Try again?", default=True):
-                            exit_script()
-        
-        tls_insecure_skip_verify = False
-        if direct_mode and transport in ("tlsmux", "wssmux", "realitymux"):
-            print(f"\n  {BOLD}🔐 Kharej Client Certificate (TLS/REALITY):{RESET}")
-            print(f"  {FG_WHITE}Will the Kharej client use self-signed certificate (no cert config)?{RESET}")
-            if ask_yesno(f"  {BOLD}Yes = accept self-signed{RESET} {FG_YELLOW}(only if you chose self-signed on Kharej){RESET}", default=False):
-                tls_insecure_skip_verify = True
-                c_ok("  ✅ Server will accept Kharej's self-signed certificate")
-            else:
-                c_ok("  ✅ Server will require valid certificate (secure default)")
+                            raise UserCancelled()
         
         print(f"\n  {BOLD}{FG_CYAN}Advanced Options:{RESET}")
         verbose = ask_yesno(f"  {BOLD}Enable verbose logging (for debugging)?{RESET}", default=False)
         
-        print(f"\n  {BOLD}{FG_CYAN}Heartbeat:{RESET}")
-        heartbeat = ask_int(f"  {BOLD}Heartbeat Interval:{RESET} {FG_WHITE}(seconds, 0 = use default 20s){RESET}", min_=0, max_=300, default=0)
+        print(f"\n  {BOLD}{FG_CYAN}Server Limits:{RESET}")
+        max_sessions = ask_int(f"  {BOLD}Max Sessions:{RESET} {FG_WHITE}(0 = unlimited, recommended: 0 or 1000+){RESET}", min_=0, max_=100000, default=0)
+        
+        heartbeat = ask_int(f"  {BOLD}Heartbeat Interval:{RESET} {FG_WHITE}(seconds, 0 = use default 15s){RESET}", min_=0, max_=300, default=0)
         
         print(f"\n  {BOLD}{FG_CYAN}Performance Tuning:{RESET} {FG_YELLOW}(Advanced - Optional){RESET}")
-        
-        print(f"\n  {BOLD}{FG_CYAN}🗜️  Compression (Bandwidth Optimization):{RESET}")
-        print(f"  {FG_GREEN}✅ Default: LZ4 enabled - 30-40% bandwidth savings{RESET}")
-        print(f"  {FG_WHITE}Latency: +0.1-0.3ms (negligible) | CPU: 2-3% overhead{RESET}")
-        
-        if ask_yesno(f"  {BOLD}Configure Compression settings?{RESET} {FG_WHITE}(default is optimal){RESET}", default=False):
-            compression_config = configure_compression()
-        else:
-            compression_config = {
-                "enabled": True,
-                "algorithm": "lz4",
-                "level": 0,
-                "min_size": 1024,
-                "max_size": 65536
-            }
-            c_ok(f"  ✅ Using default compression: LZ4 enabled (optimal)")
-        
-        if ask_yesno(f"  {BOLD}Configure Buffer Pool sizes?{RESET} {FG_WHITE}(for advanced tuning){RESET}", default=False):
+        if ask_yesno(f"  {BOLD}Configure Buffer Pool sizes?{RESET} {FG_WHITE}(for performance tuning){RESET}", default=False):
             buffer_pool_config = configure_buffer_pools()
         else:
             buffer_pool_config = {
@@ -2491,7 +2002,8 @@ def create_server_tunnel():
                 try:
                     route = input(f"  {BOLD}Add Route:{RESET} {FG_WHITE}(empty to finish){RESET} ").strip()
                 except KeyboardInterrupt:
-                    exit_script()
+                    print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                    raise UserCancelled()
                 if not route:
                     break
                 tun_routes.append(route)
@@ -2499,8 +2011,8 @@ def create_server_tunnel():
 
             print(f"\n  {BOLD}{FG_CYAN}Multi-Stream TUN:{RESET}")
             print(f"  {FG_WHITE}Number of parallel TUN streams for better throughput (1-64).{RESET}")
-            print(f"  {FG_WHITE}Recommended: 4-8 for high speed, 1 for low latency.{RESET}")
-            tun_streams = ask_int(f"  {BOLD}TUN Streams:{RESET}", min_=1, max_=64, default=4)
+            print(f"  {FG_WHITE}Higher values = better performance but more resource usage.{RESET}")
+            tun_streams = ask_int(f"  {BOLD}TUN Streams:{RESET}", min_=1, max_=64, default=1)
 
             print(f"\n  {BOLD}{FG_CYAN}L2TP/IPsec Auto-Forward:{RESET}")
             print(f"  {FG_WHITE}Automatically forward UDP ports 500/4500/1701 to the TUN IP for external L2TP/IPsec servers.{RESET}")
@@ -2516,7 +2028,8 @@ def create_server_tunnel():
                 try:
                     l2tp_dest_ip = input(f"  {BOLD}L2TP DNAT Destination IP:{RESET} {FG_WHITE}(optional){RESET} ").strip()
                 except KeyboardInterrupt:
-                    exit_script()
+                    print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                    raise UserCancelled()
             
             tun_config = {
                 "enabled": True,
@@ -2531,6 +2044,7 @@ def create_server_tunnel():
             }
             c_ok(f"  ✅ TUN mode configured: {tun_name} ({tun_local})")
         
+        # PROXY Protocol settings
         print(f"\n  {BOLD}{FG_CYAN}PROXY Protocol:{RESET}")
         print(f"  {FG_WHITE}PROXY Protocol forwards real client IP to backend services.{RESET}")
         print(f"  {FG_WHITE}Required for: V2ray, OpenVPN, and other services that need real client IP.{RESET}")
@@ -2553,7 +2067,8 @@ def create_server_tunnel():
             try:
                 ports_input = input(f"  {BOLD}PROXY Protocol Ports:{RESET} {FG_WHITE}(comma-separated, empty = all ports){RESET} ").strip()
             except KeyboardInterrupt:
-                exit_script()
+                print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                raise UserCancelled()
             
             if ports_input:
                 ports_list = [p.strip() for p in ports_input.split(",") if p.strip()]
@@ -2568,52 +2083,29 @@ def create_server_tunnel():
         cfg = {
             "tport": tport,
             "listen": listen_addr,
-            "connect": connect_addr,
-            "direct": direct_mode,
-            "connection_pool": connection_pool,
-            "mux_con": mux_con,
             "transport": transport,
             "psk": psk,
             "profile": profile,
             "maps": maps,
             "verbose": verbose,
+            "max_sessions": max_sessions,  
             "heartbeat": heartbeat, 
-            "compression_config": compression_config,
             "buffer_pool_config": buffer_pool_config,
             "encryption_enabled": encryption_enabled,
             "encryption_algorithm": encryption_algorithm,
             "encryption_key": encryption_key,
             "stealth_padding": stealth_padding,
-            "stealth_padding_min": stealth_padding_min,
             "stealth_padding_max": stealth_padding_max,
             "stealth_jitter": stealth_jitter,
-            "stealth_jitter_min": stealth_jitter_min,
-            "stealth_jitter_max": stealth_jitter_max,
-            "anti_dpi_delay_ms": anti_dpi_delay_ms,
             "tun_config": tun_config,
             "proxy_protocol_enabled": proxy_protocol_enabled,
             "proxy_protocol_version": proxy_protocol_version,
-            "proxy_protocol_ports": proxy_protocol_ports,
-            "stream_queue_size": stream_queue_size,
-            "tls_insecure_skip_verify": tls_insecure_skip_verify
+            "proxy_protocol_ports": proxy_protocol_ports
         }
-        if direct_mode:
-            cfg["retry_interval"] = retry_interval
-            cfg["dial_timeout"] = dial_timeout
-            cfg["aggressive_pool"] = aggressive_pool
         
         if cert_file and key_file:
             cfg["cert_file"] = cert_file
             cfg["key_file"] = key_file
-            print(f"  {FG_GREEN}✅ Certificate files added to config: cert={cert_file}, key={key_file}{RESET}")
-        elif transport in ("tlsmux", "wssmux", "realitymux") and not direct_mode:
-            print(f"  {FG_YELLOW}⚠️  No certificate files (option 3 – self-signed will be used){RESET}")
-        elif transport in ("tlsmux", "wssmux", "realitymux") and direct_mode:
-            print(f"  {FG_GREEN}✅ Direct mode: Server dials to client (no server cert needed){RESET}")
-        
-        if transport == "realitymux" and reality_sni and reality_fingerprint:
-            cfg["reality_sni"] = reality_sni
-            cfg["reality_fingerprint"] = reality_fingerprint
         
         config_path = create_server_config_file(tport, cfg)
         
@@ -2632,7 +2124,7 @@ def create_server_tunnel():
         
         pause()
     except UserCancelled:
-        exit_script()
+        return
 
 def create_client_tunnel():
     """ساخت تانل کلاینت (Kharej)"""
@@ -2664,248 +2156,44 @@ def create_client_tunnel():
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
-        print(f"  {BOLD}{FG_CYAN}Connection Mode:{RESET}")
-        print(f"  {FG_CYAN}1){RESET} {FG_GREEN}Reverse{RESET} (Normal - Kharej connects to Iran) {FG_WHITE}[Default]{RESET}")
-        print(f"  {FG_CYAN}2){RESET} {FG_YELLOW}Direct{RESET} (Iran connects to Kharej - for routing issues to Iran)")
-        connection_mode = ask_int(f"\n  {BOLD}Select connection mode:{RESET}", min_=1, max_=2, default=1)
-        direct_mode = (connection_mode == 2)
-        
-        if direct_mode:
-            print(f"\n  {FG_YELLOW}📡 Direct Mode Selected:{RESET} {FG_WHITE}Kharej client will listen for Iran server connections{RESET}")
-            print(f"  {FG_WHITE}Note: Start this client first, then start Iran server{RESET}")
-        else:
-            print(f"\n  {FG_GREEN}✅ Reverse Mode Selected:{RESET} {FG_WHITE}Kharej client will connect to Iran server{RESET}")
-        
-        print(f"\n  {BOLD}{FG_CYAN}Transport Types:{RESET}")
+        print(f"  {BOLD}{FG_CYAN}Transport Types:{RESET}")
         print(f"  {FG_CYAN}1){RESET} {FG_GREEN}tcpmux{RESET} (TCP with smux)")
-        print(f"  {FG_CYAN}2){RESET} {FG_GREEN}tlsmux{RESET} (TLS with smux - lighter than WS/WSS)")
-        print(f"  {FG_CYAN}3){RESET} {FG_GREEN}realitymux{RESET} (REALITY - TLS camouflage with fingerprint mimic)")
-        print(f"  {FG_CYAN}4){RESET} {FG_GREEN}kcpmux{RESET} (KCP with smux)")
-        print(f"  {FG_CYAN}5){RESET} {FG_GREEN}wsmux{RESET} (WebSocket with smux)")
-        print(f"  {FG_CYAN}6){RESET} {FG_GREEN}wssmux{RESET} (WebSocket Secure with smux)")
-        transport_choice = ask_int(f"\n  {BOLD}Select transport:{RESET}", min_=1, max_=6, default=1)
-        transports = {1: "tcpmux", 2: "tlsmux", 3: "realitymux", 4: "kcpmux", 5: "wsmux", 6: "wssmux"}
+        print(f"  {FG_CYAN}2){RESET} {FG_GREEN}kcpmux{RESET} (KCP with smux)")
+        print(f"  {FG_CYAN}3){RESET} {FG_GREEN}wsmux{RESET} (WebSocket with smux)")
+        print(f"  {FG_CYAN}4){RESET} {FG_GREEN}wssmux{RESET} (WebSocket Secure with smux)")
+        transport_choice = ask_int(f"\n  {BOLD}Select transport:{RESET}", min_=1, max_=4, default=1)
+        transports = {1: "tcpmux", 2: "kcpmux", 3: "wsmux", 4: "wssmux"}
         transport = transports[transport_choice]
         
-        reality_sni = ""
-        reality_fingerprint = ""
-        if transport == "realitymux" and not direct_mode:
-            print(f"\n  {BOLD}🎭 REALITY Configuration:{RESET}")
-            print(f"  {FG_WHITE}REALITY uses TLS camouflage with fingerprint mimic to bypass DPI{RESET}")
-            print(f"  {FG_GREEN}Reverse Mode:{RESET} {FG_WHITE}Client will connect to server with REALITY{RESET}")
-            print(f"  {FG_WHITE}SNI spoofing: Client will send spoofed SNI to hide the real server{RESET}")
-            print(f"  {FG_WHITE}Fingerprint mimic: Client will mimic a real browser's TLS fingerprint{RESET}")
-            
-            print(f"\n  {BOLD}SNI Spoofing Target:{RESET}")
-            print(f"  {FG_CYAN}1){RESET} {FG_GREEN}cloudflare.com{RESET} (Recommended - most common)")
-            print(f"  {FG_CYAN}2){RESET} {FG_GREEN}google.com{RESET}")
-            print(f"  {FG_CYAN}3){RESET} {FG_GREEN}microsoft.com{RESET}")
-            print(f"  {FG_CYAN}4){RESET} {FG_GREEN}apple.com{RESET}")
-            print(f"  {FG_CYAN}5){RESET} {FG_YELLOW}random{RESET} (Changes per connection - maximum stealth)")
-            print(f"  {FG_CYAN}6){RESET} {FG_YELLOW}Custom{RESET}")
-            sni_choice = ask_int(f"  {BOLD}Select SNI target:{RESET}", min_=1, max_=6, default=5) 
-            sni_options = {1: "cloudflare.com", 2: "google.com", 3: "microsoft.com", 4: "apple.com", 5: "random"}
-            if sni_choice == 6:
-                reality_sni = ask_nonempty(f"  {BOLD}Enter custom SNI:{RESET}")
-            else:
-                reality_sni = sni_options[sni_choice]
-            
-            print(f"\n  {BOLD}TLS Fingerprint:{RESET}")
-            print(f"  {FG_WHITE}Select which browser's TLS fingerprint to mimic:{RESET}")
-            print(f"  {FG_CYAN}1){RESET} {FG_GREEN}Chrome{RESET} (Recommended - most common)")
-            print(f"  {FG_CYAN}2){RESET} {FG_GREEN}Firefox{RESET}")
-            print(f"  {FG_CYAN}3){RESET} {FG_GREEN}Safari{RESET}")
-            print(f"  {FG_CYAN}4){RESET} {FG_GREEN}Edge{RESET}")
-            print(f"  {FG_CYAN}5){RESET} {FG_GREEN}iOS{RESET}")
-            print(f"  {FG_CYAN}6){RESET} {FG_GREEN}Android{RESET}")
-            print(f"  {FG_CYAN}7){RESET} {FG_YELLOW}random{RESET} (Changes per connection - maximum stealth)")
-            fingerprint_choice = ask_int(f"  {BOLD}Select fingerprint:{RESET}", min_=1, max_=7, default=7) 
-            fingerprint_options = {1: "chrome", 2: "firefox", 3: "safari", 4: "edge", 5: "ios", 6: "android", 7: "random"}
-            reality_fingerprint = fingerprint_options[fingerprint_choice]
-            
-            c_ok(f"  ✅ REALITY configured: SNI={reality_sni}, Fingerprint={reality_fingerprint}")
-        elif transport == "realitymux" and direct_mode:
-            print(f"\n  {BOLD}🎭 REALITY Configuration:{RESET}")
-            print(f"  {FG_YELLOW}Direct Mode:{RESET} {FG_WHITE}Client will listen and accept REALITY connections{RESET}")
-            print(f"  {FG_WHITE}Note: Client accepts any SNI from server (no configuration needed){RESET}")
-            print(f"  {FG_WHITE}Server will configure its own SNI and fingerprint settings{RESET}")
-            c_ok(f"  ✅ REALITY client will accept connections with any SNI")
-        
         tls_insecure_skip_verify = False
-        cert_file = None
-        key_file = None
-        
-        if transport in ("tlsmux", "wssmux", "realitymux"):
-            if not direct_mode:
-                print(f"\n  {BOLD}🔐 Server Certificate Type (Reverse – Kharej connects):{RESET}")
-                print(f"  {FG_WHITE}What type of certificate does the Iran server use?{RESET}")
-                print(f"  {FG_GREEN}1){RESET} Let's Encrypt (real certificate) {FG_WHITE}[Default]{RESET}")
-                print(f"  {FG_YELLOW}2){RESET} Self-signed (for testing)")
-                cert_type = ask_int("\n  Select server certificate type", min_=1, max_=2, default=1)
-                
-                if cert_type == 2:
-                    tls_insecure_skip_verify = True
-                    c_warn("  ⚠️  tls_insecure_skip_verify will be set to true (for self-signed certificate)")
-                else:
-                    tls_insecure_skip_verify = False
-                    c_ok("  ✅ tls_insecure_skip_verify will be set to false (for Let's Encrypt)")
-            else:
-                print(f"\n  {BOLD}🔐 TLS/REALITY Certificate (Direct – Kharej listens):{RESET}")
-                print(f"  {FG_GREEN}1){RESET} Get new certificate (Let's Encrypt) {FG_WHITE}[Default – recommended]{RESET}")
-                print(f"  {FG_BLUE}2){RESET} Use existing certificate (provide file paths)")
-                print(f"  {FG_YELLOW}3){RESET} Self-signed (no cert config – فقط اگر روی سرور ایران «قبول self-signed» زدی)")
-                cert_choice = ask_int("\nSelect certificate type", min_=1, max_=3, default=1)
-                
-                if cert_choice == 1:
-                    while True:
-                        try:
-                            domain = input(f"\n  {BOLD}{FG_GREEN}Enter your domain:{RESET} {FG_WHITE}(e.g., example.com or sub.example.com){RESET} ").strip()
-                        except KeyboardInterrupt:
-                            exit_script()
-                        if not domain:
-                            c_err("  Domain is required!")
-                            if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                                exit_script()
-                            continue
-                        
-                        try:
-                            email = input(f"  {BOLD}{FG_GREEN}Enter your email:{RESET} {FG_WHITE}(for Let's Encrypt){RESET} ").strip()
-                        except KeyboardInterrupt:
-                            exit_script()
-                        if not email:
-                            c_err("  Email is required!")
-                            if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                                exit_script()
-                            continue
-                        
-                        cert_domain = domain
-                        cert_email = email
-                        cert_choice_stored = 1
-                        break
-                
-                elif cert_choice == 2:
-                    while True:
-                        try:
-                            cert_path = input(f"\n  {BOLD}{FG_GREEN}Enter certificate file path:{RESET} {FG_WHITE}(e.g., /root/cert.crt){RESET} ").strip()
-                        except KeyboardInterrupt:
-                            exit_script()
-                        if not cert_path:
-                            c_err("  Certificate file path is required!")
-                            if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                                exit_script()
-                            continue
-                        
-                        cert_path_obj = Path(cert_path)
-                        if not cert_path_obj.exists():
-                            c_err(f"  Certificate file not found: {FG_RED}{cert_path}{RESET}")
-                            if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                                exit_script()
-                            continue
-                        
-                        try:
-                            key_path = input(f"  {BOLD}{FG_GREEN}Enter private key file path:{RESET} {FG_WHITE}(e.g., /root/private.key){RESET} ").strip()
-                        except KeyboardInterrupt:
-                            exit_script()
-                        if not key_path:
-                            c_err("  Private key file path is required!")
-                            if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                                exit_script()
-                            continue
-                        
-                        key_path_obj = Path(key_path)
-                        if not key_path_obj.exists():
-                            c_err(f"  Private key file not found: {FG_RED}{key_path}{RESET}")
-                            if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                                exit_script()
-                            continue
-                        
-                        try:
-                            with open(cert_path_obj, 'r') as f:
-                                cert_content = f.read()
-                                if "BEGIN CERTIFICATE" not in cert_content:
-                                    c_err("  Invalid certificate file format!")
-                                    if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                                        exit_script()
-                                    continue
-                            
-                            with open(key_path_obj, 'r') as f:
-                                key_content = f.read()
-                                if "BEGIN" not in key_content or "PRIVATE KEY" not in key_content:
-                                    c_err("  Invalid private key file format!")
-                                    if not ask_yesno(f"  {BOLD}Try again?{RESET}", default=True):
-                                        exit_script()
-                                    continue
-                            
-                            cert_file = str(cert_path_obj)
-                            key_file = str(key_path_obj)
-                            c_ok(f"  ✅ Certificate files validated: {FG_GREEN}{cert_file}{RESET}")
-                            break
-                        except UserCancelled:
-                            exit_script()
-                        except Exception as e:
-                            c_err(f"Error reading certificate files: {e}")
-                            if not ask_yesno("Try again?", default=True):
-                                exit_script()
-                else:
-                    c_ok("  ✅ Self-signed certificate will be auto-generated (ensure Iran server has «accept self-signed» enabled)")
-        
-        server_addr = ""
-        listen_addr = ""
-        tport = 0
-        
-        use_ipv6 = False
-        if is_ipv6_available():
-            print(f"\n  {FG_GREEN}✅ IPv6 is available on this system{RESET}")
-            print(f"  {FG_WHITE}Note: For IPv6, client will listen/connect on both IPv4 and IPv6{RESET}")
-            use_ipv6 = ask_yesno(f"  {BOLD}Enable IPv6 support?{RESET}", default=False)
-        else:
-            print(f"\n  {FG_YELLOW}⚠️  IPv6 is NOT available on this system (disabled or not supported){RESET}")
-            print(f"  {FG_WHITE}Client will use IPv4 only{RESET}")
-        
-        if direct_mode:
-            print(f"\n  {BOLD}{FG_CYAN}Connection Settings:{RESET}")
-            while True:
-                tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-                if is_port_in_use(tport):
-                    c_warn(f"  ⚠️  Port {FG_YELLOW}{tport}{RESET} is already in use!")
-                    if not ask_yesno(f"  {BOLD}Continue anyway?{RESET}", default=False):
-                        continue
-                break
+        if transport == "wssmux":
+            print(f"\n  {BOLD}🔐 Server Certificate Type:{RESET}")
+            print(f"  {FG_WHITE}What type of certificate does the Iran server use?{RESET}")
+            print(f"  {FG_GREEN}1){RESET} Let's Encrypt (real certificate) - Recommended")
+            print(f"  {FG_YELLOW}2){RESET} Self-signed certificate (for testing)")
+            cert_type = ask_int("\n  Select server certificate type", min_=1, max_=2, default=1)
             
-            if use_ipv6:
-                listen_addr = f"[::]:{tport}"
+            if cert_type == 2:
+                tls_insecure_skip_verify = True
+                c_warn("  ⚠️  tls_insecure_skip_verify will be set to true (for self-signed certificate)")
             else:
-                listen_addr = f"0.0.0.0:{tport}"
-            
-            if transport in ("tlsmux", "wssmux", "realitymux") and 'cert_choice_stored' in locals() and cert_choice_stored == 1:
-                cert_file, key_file = get_certificate_with_acme(cert_domain, cert_email, tport)
-                if not cert_file or not key_file:
-                    c_err("  Failed to get real certificate!")
-                    print(f"\n  {BOLD}{FG_YELLOW}Options:{RESET}")
-                    print(f"  {FG_GREEN}1){RESET} Continue with self-signed certificate (auto-generated)")
-                    print(f"  {FG_RED}2){RESET} Cancel and exit")
-                    try:
-                        retry_choice = input(f"\n  {BOLD}Select option:{RESET} ").strip()
-                    except KeyboardInterrupt:
-                        exit_script()
-                    if retry_choice != "1":
-                        exit_script()
-                    else:
-                        cert_file = None
-                        key_file = None
-                        c_ok("  ✅ Will use self-signed certificate (auto-generated)")
-                else:
-                    c_ok(f"  ✅ Real certificate obtained: {FG_GREEN}{cert_file}{RESET}")
+                tls_insecure_skip_verify = False
+                c_ok("  ✅ tls_insecure_skip_verify will be set to false (for Let's Encrypt)")
+        
+        print(f"\n  {BOLD}{FG_CYAN}Server Connection:{RESET}")
+        if transport == "wssmux":
+            print(f"  {FG_WHITE}Domain example: example.com or sub.example.com{RESET}")
+            print(f"  {FG_YELLOW}⚠️  Note: For Let's Encrypt, you must use domain (not IP address){RESET}")
+            server_domain = ask_nonempty(f"  {BOLD}Server Domain:{RESET}")
+            tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
+            server_addr = f"{server_domain}:{tport}"
         else:
-            print(f"\n  {BOLD}{FG_CYAN}Connection Settings:{RESET}")
             print(f"  {FG_WHITE}IPv4 example: 1.2.3.4{RESET}")
             print(f"  {FG_WHITE}IPv6 example: 2001:db8::1 or fd00::1{RESET}")
-            if transport in ("wssmux", "tlsmux", "realitymux"):
-                print(f"  {FG_WHITE}Domain example: example.com or sub.example.com{RESET}")
             server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET}")
             tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
             
-            if ':' in server_ip and not server_ip.startswith('[') and '.' not in server_ip:
+            if ':' in server_ip and not server_ip.startswith('['):
                 server_addr = f"[{server_ip}]:{tport}"
                 print(f"  {FG_GREEN}✅ IPv6 detected, formatted as: {server_addr}{RESET}")
             else:
@@ -2915,21 +2203,27 @@ def create_client_tunnel():
         print(f"  {FG_WHITE}Note: Must match server settings!{RESET}")
         psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}")
         
-        encryption_config = configure_encryption()
-        encryption_enabled = encryption_config["enabled"]
-        encryption_algorithm = encryption_config["algorithm"]
-        encryption_key = encryption_config["key"]
+        encryption_enabled = ask_yesno(f"  {BOLD}Enable encryption?{RESET} {FG_WHITE}(anti-DPI){RESET}", default=False)
+        encryption_key = ""
+        encryption_algorithm = "chacha"
+        stealth_padding = False
+        stealth_padding_max = 0
+        stealth_jitter = False
         
-        stealth_config = configure_stealth()
-        stealth_padding = stealth_config["padding_enabled"]
-        stealth_padding_min = stealth_config["padding_min"]
-        stealth_padding_max = stealth_config["padding_max"]
-        stealth_jitter = stealth_config["jitter_enabled"]
-        stealth_jitter_min = stealth_config["jitter_min_ms"]
-        stealth_jitter_max = stealth_config["jitter_max_ms"]
-        
-        anti_dpi_delay_ms = configure_anti_dpi()
-        
+        if encryption_enabled:
+            print(f"\n  {BOLD}{FG_CYAN}Encryption Algorithm:{RESET} {FG_WHITE}(must match server!){RESET}")
+            print(f"  {FG_BLUE}1){RESET} {FG_GREEN}ChaCha20-Poly1305{RESET} {FG_WHITE}(default - fast on all CPUs){RESET}")
+            print(f"  {FG_BLUE}2){RESET} {FG_GREEN}AES-256-GCM{RESET} {FG_WHITE}(faster with AES-NI hardware){RESET}")
+            algo_choice = ask_int(f"  {BOLD}Select algorithm:{RESET}", min_=1, max_=2, default=1)
+            encryption_algorithm = "chacha" if algo_choice == 1 else "aes-gcm"
+            
+            print(f"  {FG_WHITE}Note: Leave empty to use PSK as encryption key{RESET}")
+            try:
+                encryption_key = input(f"  {BOLD}Encryption Key:{RESET} {FG_WHITE}(empty = use PSK){RESET} ").strip()
+            except KeyboardInterrupt:
+                print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                raise UserCancelled()
+            
         print(f"\n  {BOLD}{FG_CYAN}Performance Profiles:{RESET}")
         print(f"  {FG_BLUE}1){RESET} {FG_GREEN}balanced{RESET} {FG_WHITE}(default - best overall){RESET}")
         print(f"  {FG_BLUE}2){RESET} {FG_GREEN}aggressive{RESET} {FG_WHITE}(high throughput, more CPU){RESET}")
@@ -2940,179 +2234,90 @@ def create_client_tunnel():
         profile = profiles[profile_choice]
 
         paths = []
-        connection_pool = 8
-        mux_con = 8
-        retry_interval = 3
-        dial_timeout = 10
-        aggressive_pool = False
         
-        stream_queue_size = 2048 
-        if not direct_mode:
-            print(f"\n  {BOLD}{FG_CYAN}Connection Pool Settings:{RESET}")
-            smux_default = get_default_smux_config(profile)
-            default_mux_con = smux_default.get("mux_con", 8)
-            connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-16){RESET}", min_=1, max_=64, default=8)
-            mux_con = ask_int(f"  {BOLD}Mux Con:{RESET} {FG_WHITE}(recommended: {default_mux_con} for {profile} profile){RESET}", min_=1, max_=32, default=default_mux_con)
-            retry_interval = ask_int(f"  {BOLD}Retry Interval:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=3)
-            dial_timeout = ask_int(f"  {BOLD}Dial Timeout:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=10)
-            aggressive_pool = ask_yesno(f"  {BOLD}Aggressive Pool?{RESET} {FG_WHITE}(faster reconnect){RESET}", default=False)
+        print(f"\n  {BOLD}{FG_CYAN}Connection Settings:{RESET}")
+        connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-16){RESET}", min_=1, max_=100, default=8)
+        smux_default = get_default_smux_config(profile)
+        default_mux_con = smux_default.get("mux_con", 8)
+        mux_con = ask_int(f"  {BOLD}Mux Con:{RESET} {FG_WHITE}(recommended: {default_mux_con} for {profile} profile){RESET}", min_=1, max_=100, default=default_mux_con)
+        retry_interval = ask_int(f"  {BOLD}Retry Interval:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=3)
+        dial_timeout = ask_int(f"  {BOLD}Dial Timeout:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=10)
+        aggressive_pool = ask_yesno(f"  {BOLD}Aggressive Pool?{RESET} {FG_WHITE}(faster reconnect){RESET}", default=False)
+        
+
+        path_dict = {
+            "addr": server_addr,
+            "transport": transport,
+            "connection_pool": connection_pool,
+            "retry_interval": retry_interval,
+            "dial_timeout": dial_timeout,
+            "aggressive_pool": aggressive_pool
+        }
+        
+        paths.append(path_dict)
+        
+        print(f"\n  {FG_GREEN}✅ Primary server configured:{RESET} {FG_CYAN}{transport}://{server_addr}{RESET} {FG_WHITE}({connection_pool} connections){RESET}")
+        
+        print(f"\n  {FG_YELLOW}💡 Tip:{RESET} You can add backup servers (additional Iran servers) for redundancy.")
+        print(f"     {FG_WHITE}If the primary server fails, client will automatically switch to backup server.{RESET}")
+        while True:
+            if not ask_yesno(f"\n  {BOLD}{FG_CYAN}Add another Iran server (backup)?{RESET}", default=False):
+                break
             
-            path_dict = {
-                "addr": server_addr,
-                "transport": transport,
-                "connection_pool": connection_pool,
-                "retry_interval": retry_interval,
-                "dial_timeout": dial_timeout,
-                "aggressive_pool": aggressive_pool
+            print(f"\n  {BOLD}{FG_CYAN}Backup Server #{len(paths) + 1}:{RESET} {FG_WHITE}(Additional Iran Server){RESET}")
+            
+            print(f"\n  {BOLD}Transport Types:{RESET}")
+            print(f"  {FG_CYAN}1){RESET} {FG_GREEN}tcpmux{RESET} (TCP with smux)")
+            print(f"  {FG_CYAN}2){RESET} {FG_GREEN}kcpmux{RESET} (KCP with smux)")
+            print(f"  {FG_CYAN}3){RESET} {FG_GREEN}wsmux{RESET} (WebSocket with smux)")
+            print(f"  {FG_CYAN}4){RESET} {FG_GREEN}wssmux{RESET} (WebSocket Secure with smux)")
+            new_transport_choice = ask_int(f"\n  {BOLD}Select transport:{RESET}", min_=1, max_=4, default=1)
+            new_transport = transports[new_transport_choice]
+            
+            if new_transport == "wssmux":
+                print(f"  {FG_WHITE}Domain example: example.com or sub.example.com{RESET}")
+                print(f"  {FG_YELLOW}⚠️  Note: For Let's Encrypt, you must use domain (not IP address){RESET}")
+                new_server_domain = ask_nonempty(f"  {BOLD}Server Domain:{RESET}")
+                new_tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
+                new_server_addr = f"{new_server_domain}:{new_tport}"
+            else:
+                print(f"  {FG_WHITE}IPv4 example: 1.2.3.4 | IPv6 example: 2001:db8::1{RESET}")
+                new_server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET}")
+                new_tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
+                
+                if ':' in new_server_ip and not new_server_ip.startswith('['):
+                    new_server_addr = f"[{new_server_ip}]:{new_tport}"
+                else:
+                    new_server_addr = f"{new_server_ip}:{new_tport}"
+            
+            new_connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-16){RESET}", min_=1, max_=100, default=8)
+            
+            new_retry_interval = ask_int(f"  {BOLD}Retry Interval:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=3)
+            new_dial_timeout = ask_int(f"  {BOLD}Dial Timeout:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=10)
+            new_aggressive_pool = ask_yesno(f"  {BOLD}Aggressive Pool?{RESET} {FG_WHITE}(faster reconnect){RESET}", default=False)
+            
+
+            new_path_dict = {
+                "addr": new_server_addr,
+                "transport": new_transport,
+                "connection_pool": new_connection_pool,
+                "retry_interval": new_retry_interval,
+                "dial_timeout": new_dial_timeout,
+                "aggressive_pool": new_aggressive_pool
             }
             
-            if transport == "realitymux" and reality_sni and reality_fingerprint:
-                path_dict["reality_sni"] = reality_sni
-                path_dict["reality_fingerprint"] = reality_fingerprint
+            paths.append(new_path_dict)
             
-            paths.append(path_dict)
-            
-            print(f"\n  {FG_GREEN}✅ Primary server configured:{RESET} {FG_CYAN}{transport}://{server_addr}{RESET} {FG_WHITE}({connection_pool} connections){RESET}")
-            
-        else:
-            print(f"\n  {BOLD}{FG_CYAN}Server Queue Settings:{RESET}")
-            stream_queue_size = ask_int(f"  {BOLD}Stream Queue Size:{RESET} {FG_WHITE}(default: 2048){RESET}", min_=128, max_=65536, default=2048)
-            print(f"\n  {FG_GREEN}✅ Direct mode configured:{RESET} {FG_WHITE}Listening on {listen_addr}{RESET}")
-            print(f"\n  {FG_YELLOW}💡 Tip:{RESET} You can add backup servers (additional Iran servers) for redundancy.")
-            print(f"     {FG_WHITE}If the primary server fails, client will automatically switch to backup server.{RESET}")
-            while True:
-                if not ask_yesno(f"\n  {BOLD}{FG_CYAN}Add another Iran server (backup)?{RESET}", default=False):
-                    break
-                
-                print(f"\n  {BOLD}{FG_CYAN}Backup Server #{len(paths) + 1}:{RESET} {FG_WHITE}(Additional Iran Server){RESET}")
-                
-                print(f"\n  {BOLD}Transport Types:{RESET}")
-                print(f"  {FG_CYAN}1){RESET} {FG_GREEN}tcpmux{RESET} (TCP with smux)")
-                print(f"  {FG_CYAN}2){RESET} {FG_GREEN}tlsmux{RESET} (TLS with smux - lighter than WS/WSS)")
-                print(f"  {FG_CYAN}3){RESET} {FG_GREEN}kcpmux{RESET} (KCP with smux)")
-                print(f"  {FG_CYAN}4){RESET} {FG_GREEN}wsmux{RESET} (WebSocket with smux)")
-                print(f"  {FG_CYAN}5){RESET} {FG_GREEN}wssmux{RESET} (WebSocket Secure with smux)")
-                print(f"  {FG_CYAN}6){RESET} {FG_GREEN}realitymux{RESET} (REALITY TLS camouflage - anti-DPI)")
-                new_transport_choice = ask_int(f"\n  {BOLD}Select transport:{RESET}", min_=1, max_=6, default=1)
-                transports_backup = {1: "tcpmux", 2: "tlsmux", 3: "kcpmux", 4: "wsmux", 5: "wssmux", 6: "realitymux"}
-                new_transport = transports_backup[new_transport_choice]
-                
-                new_reality_sni = None
-                new_reality_fingerprint = None
-                if new_transport == "realitymux":
-                    print(f"\n  {BOLD}{FG_CYAN}REALITY Configuration:{RESET} {FG_WHITE}(TLS Camouflage){RESET}")
-                    print(f"  {FG_WHITE}REALITY mimics real browser TLS fingerprints to bypass DPI.{RESET}")
-                    print(f"\n  {BOLD}SNI Spoofing Target:{RESET}")
-                    print(f"  {FG_CYAN}1){RESET} {FG_GREEN}cloudflare.com{RESET} {FG_WHITE}(default - recommended){RESET}")
-                    print(f"  {FG_CYAN}2){RESET} {FG_GREEN}google.com{RESET}")
-                    print(f"  {FG_CYAN}3){RESET} {FG_GREEN}microsoft.com{RESET}")
-                    print(f"  {FG_CYAN}4){RESET} {FG_GREEN}apple.com{RESET}")
-                    print(f"  {FG_CYAN}5){RESET} {FG_GREEN}Custom{RESET}")
-                    sni_choice = ask_int(f"  {BOLD}Select SNI:{RESET}", min_=1, max_=5, default=1)
-                    sni_options = {1: "cloudflare.com", 2: "google.com", 3: "microsoft.com", 4: "apple.com"}
-                    if sni_choice == 5:
-                        new_reality_sni = ask_nonempty(f"  {BOLD}Custom SNI:{RESET}")
-                    else:
-                        new_reality_sni = sni_options[sni_choice]
-                    
-                    print(f"\n  {BOLD}TLS Fingerprint:{RESET}")
-                    print(f"  {FG_CYAN}1){RESET} {FG_GREEN}chrome{RESET} {FG_WHITE}(default - most common){RESET}")
-                    print(f"  {FG_CYAN}2){RESET} {FG_GREEN}firefox{RESET}")
-                    print(f"  {FG_CYAN}3){RESET} {FG_GREEN}safari{RESET}")
-                    print(f"  {FG_CYAN}4){RESET} {FG_GREEN}edge{RESET}")
-                    print(f"  {FG_CYAN}5){RESET} {FG_GREEN}ios{RESET}")
-                    print(f"  {FG_CYAN}6){RESET} {FG_GREEN}android{RESET}")
-                    fingerprint_choice = ask_int(f"  {BOLD}Select fingerprint:{RESET}", min_=1, max_=6, default=1)
-                    fingerprint_options = {1: "chrome", 2: "firefox", 3: "safari", 4: "edge", 5: "ios", 6: "android"}
-                    new_reality_fingerprint = fingerprint_options[fingerprint_choice]
-                
-                if new_transport == "wssmux":
-                    print(f"  {FG_WHITE}Domain example: example.com or sub.example.com{RESET}")
-                    print(f"  {FG_YELLOW}⚠️  Note: For Let's Encrypt, you must use domain (not IP address){RESET}")
-                    new_server_domain = ask_nonempty(f"  {BOLD}Server Domain:{RESET}")
-                    new_tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-                    new_server_addr = f"{new_server_domain}:{new_tport}"
-                elif new_transport == "tlsmux":
-                    print(f"  {FG_WHITE}IPv4 example: 1.2.3.4 | IPv6 example: 2001:db8::1{RESET}")
-                    print(f"  {FG_WHITE}Domain example: example.com or sub.example.com (optional){RESET}")
-                    print(f"  {FG_YELLOW}⚠️  Note: You can use IP or domain for tlsmux{RESET}")
-                    new_server_input = ask_nonempty(f"  {BOLD}Iran Server IP or Domain:{RESET}")
-                    new_tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-                    
-                    if ':' in new_server_input and not new_server_input.startswith('[') and not '.' in new_server_input.replace(':', ''):
-                        new_server_addr = f"[{new_server_input}]:{new_tport}"
-                    else:
-                        new_server_addr = f"{new_server_input}:{new_tport}"
-                elif new_transport == "realitymux":
-                    print(f"  {FG_WHITE}IPv4 example: 1.2.3.4 | IPv6 example: 2001:db8::1{RESET}")
-                    print(f"  {FG_WHITE}Domain example: example.com or sub.example.com (optional){RESET}")
-                    print(f"  {FG_YELLOW}⚠️  Note: You can use IP or domain for realitymux{RESET}")
-                    new_server_input = ask_nonempty(f"  {BOLD}Iran Server IP or Domain:{RESET}")
-                    new_tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-                    
-                    if ':' in new_server_input and not new_server_input.startswith('[') and not '.' in new_server_input.replace(':', ''):
-                        new_server_addr = f"[{new_server_input}]:{new_tport}"
-                    else:
-                        new_server_addr = f"{new_server_input}:{new_tport}"
-                else:
-                    print(f"  {FG_WHITE}IPv4 example: 1.2.3.4 | IPv6 example: 2001:db8::1{RESET}")
-                    new_server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET}")
-                    new_tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
-                    
-                    if ':' in new_server_ip and not new_server_ip.startswith('['):
-                        new_server_addr = f"[{new_server_ip}]:{new_tport}"
-                    else:
-                        new_server_addr = f"{new_server_ip}:{new_tport}"
-                
-                new_connection_pool = ask_int(f"  {BOLD}Connection Pool:{RESET} {FG_WHITE}(recommended: 8-16){RESET}", min_=1, max_=100, default=8)
-                new_stream_queue_size = ask_int(f"  {BOLD}Stream Queue Size:{RESET} {FG_WHITE}(default: 2048){RESET}", min_=128, max_=65536, default=2048)
-                new_retry_interval = ask_int(f"  {BOLD}Retry Interval:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=3)
-                new_dial_timeout = ask_int(f"  {BOLD}Dial Timeout:{RESET} {FG_WHITE}(seconds){RESET}", min_=1, max_=60, default=10)
-                new_aggressive_pool = ask_yesno(f"  {BOLD}Aggressive Pool?{RESET} {FG_WHITE}(faster reconnect){RESET}", default=False)
-
-                new_path_dict = {
-                    "addr": new_server_addr,
-                    "transport": new_transport,
-                    "connection_pool": new_connection_pool,
-                    "stream_queue_size": new_stream_queue_size,
-                    "retry_interval": new_retry_interval,
-                    "dial_timeout": new_dial_timeout,
-                    "aggressive_pool": new_aggressive_pool
-                }
-                
-                if new_transport == "realitymux" and new_reality_sni and new_reality_fingerprint:
-                    new_path_dict["reality_sni"] = new_reality_sni
-                    new_path_dict["reality_fingerprint"] = new_reality_fingerprint
-                
-                paths.append(new_path_dict)
-                
-                print(f"  {FG_GREEN}✅ Backup server added:{RESET} {FG_CYAN}{new_transport}://{new_server_addr}{RESET} {FG_WHITE}({new_connection_pool} connections){RESET}")
+            print(f"  {FG_GREEN}✅ Backup server added:{RESET} {FG_CYAN}{new_transport}://{new_server_addr}{RESET} {FG_WHITE}({new_connection_pool} connections){RESET}")
         
 
         print(f"\n  {BOLD}{FG_CYAN}Advanced Options:{RESET}")
         verbose = ask_yesno(f"  {BOLD}Enable verbose logging (for debugging)?{RESET}", default=False)
         
-        heartbeat = ask_int(f"  {BOLD}Heartbeat Interval:{RESET} {FG_WHITE}(seconds, 0 = use default 20s){RESET}", min_=0, max_=300, default=0)
+        heartbeat = ask_int(f"  {BOLD}Heartbeat Interval:{RESET} {FG_WHITE}(seconds, 0 = use default 15s){RESET}", min_=0, max_=300, default=0)
         
         print(f"\n  {BOLD}{FG_CYAN}Performance Tuning:{RESET} {FG_YELLOW}(Advanced - Optional){RESET}")
-        
-        print(f"\n  {BOLD}{FG_CYAN}🗜️  Compression (Bandwidth Optimization):{RESET}")
-        print(f"  {FG_GREEN}✅ Default: LZ4 enabled - 30-40% bandwidth savings{RESET}")
-        print(f"  {FG_WHITE}Latency: +0.1-0.3ms (negligible) | CPU: 2-3% overhead{RESET}")
-        
-        if ask_yesno(f"  {BOLD}Configure Compression settings?{RESET} {FG_WHITE}(default is optimal){RESET}", default=False):
-            compression_config = configure_compression()
-        else:
-            compression_config = {
-                "enabled": True,
-                "algorithm": "lz4",
-                "level": 0,
-                "min_size": 1024,
-                "max_size": 65536
-            }
-            c_ok(f"  ✅ Using default compression: LZ4 enabled (optimal)")
-        
-        if ask_yesno(f"  {BOLD}Configure Buffer Pool sizes?{RESET} {FG_WHITE}(for advanced tuning){RESET}", default=False):
+        if ask_yesno(f"  {BOLD}Configure Buffer Pool sizes?{RESET} {FG_WHITE}(for performance tuning){RESET}", default=False):
             buffer_pool_config = configure_buffer_pools()
         else:
             buffer_pool_config = {
@@ -3141,7 +2346,8 @@ def create_client_tunnel():
                 try:
                     route = input(f"  {BOLD}Add Route:{RESET} {FG_WHITE}(empty to finish){RESET} ").strip()
                 except KeyboardInterrupt:
-                    exit_script()
+                    print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
+                    raise UserCancelled()
                 if not route:
                     break
                 tun_routes.append(route)
@@ -3149,8 +2355,8 @@ def create_client_tunnel():
 
             print(f"\n  {BOLD}{FG_CYAN}Multi-Stream TUN:{RESET}")
             print(f"  {FG_WHITE}Number of parallel TUN streams for better throughput (1-64).{RESET}")
-            print(f"  {FG_WHITE}Recommended: 4-8 for high speed, 1 for low latency.{RESET}")
-            tun_streams = ask_int(f"  {BOLD}TUN Streams:{RESET}", min_=1, max_=64, default=4)
+            print(f"  {FG_WHITE}Higher values = better performance but more resource usage.{RESET}")
+            tun_streams = ask_int(f"  {BOLD}TUN Streams:{RESET}", min_=1, max_=64, default=1)
             
             tun_config = {
                 "enabled": True,
@@ -3183,39 +2389,21 @@ def create_client_tunnel():
             "profile": profile,
             "mux_con": mux_con,
             "paths": paths,
-            "direct": direct_mode,
-            "listen": listen_addr,
-            "transport": transport,
-            "reality_sni": reality_sni,
-            "reality_fingerprint": reality_fingerprint,
             "tls_insecure_skip_verify": tls_insecure_skip_verify,
             "verbose": verbose,
             "heartbeat": heartbeat,
-            "compression_config": compression_config,
             "buffer_pool_config": buffer_pool_config,
             "encryption_enabled": encryption_enabled,
             "encryption_algorithm": encryption_algorithm,
             "encryption_key": encryption_key,
             "stealth_padding": stealth_padding,
-            "stealth_padding_min": stealth_padding_min,
             "stealth_padding_max": stealth_padding_max,
             "stealth_jitter": stealth_jitter,
-            "stealth_jitter_min": stealth_jitter_min,
-            "stealth_jitter_max": stealth_jitter_max,
-            "anti_dpi_delay_ms": anti_dpi_delay_ms,
             "tun_config": tun_config,
             "proxy_protocol_enabled": proxy_protocol_enabled,
             "proxy_protocol_version": proxy_protocol_version,
-            "proxy_protocol_ports": [],
-            "stream_queue_size": stream_queue_size
+            "proxy_protocol_ports": []
         }
-        
-        if cert_file and key_file:
-            cfg["cert_file"] = cert_file
-            cfg["key_file"] = key_file
-            print(f"  {FG_GREEN}✅ Certificate files added to config: cert={cert_file}, key={key_file}{RESET}")
-        elif transport in ("tlsmux", "wssmux", "realitymux") and direct_mode:
-            print(f"  {FG_YELLOW}⚠️  Option 3 selected – self-signed will be used. Ensure Iran server has «accept self-signed» enabled.{RESET}")
         
         config_path = create_client_config_file(cfg)
         
@@ -3234,7 +2422,7 @@ def create_client_tunnel():
         
         pause()
     except UserCancelled:
-        exit_script()
+        return
 
 def status_menu():
     """منوی استاتوس"""
@@ -3245,11 +2433,7 @@ def status_menu():
         print(f"{BOLD}{FG_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
         print()
         
-        try:
-            items = list_tunnels()
-        except KeyboardInterrupt:
-            exit_script()
-        
+        items = list_tunnels()
         if not items:
             print(f"  {FG_YELLOW}No tunnels found.{RESET}")
             pause()
@@ -3268,7 +2452,8 @@ def status_menu():
         try:
             choice = input(f"  {BOLD}{FG_CYAN}Select tunnel:{RESET} {FG_WHITE}(or 0 to go back){RESET} ").strip()
         except KeyboardInterrupt:
-            exit_script()
+            print("\n")
+            return
         
         if choice == "0":
             return
@@ -3325,7 +2510,8 @@ def view_tunnel_details(config_path: Path, tunnel: Dict[str,Any]):
         try:
             choice = input(f"  {BOLD}{FG_CYAN}> {RESET}").strip()
         except KeyboardInterrupt:
-            exit_script()
+            print("\n")
+            break
         
         if choice == "0":
             break
@@ -3383,7 +2569,7 @@ def view_live_logs(config_path: Path):
     try:
         subprocess.run(["journalctl", "-u", service_name, "-f"], check=False)
     except KeyboardInterrupt:
-        exit_script()
+        print(f"\n  {FG_YELLOW}Live log stopped.{RESET}")
     except Exception as e:
         c_err(f"  ❌ Error: {FG_RED}{e}{RESET}")
         pause()
@@ -3501,7 +2687,8 @@ def stop_tunnel_menu():
     try:
         choice = input(f"  {BOLD}{FG_YELLOW}Select tunnel to stop:{RESET} ").strip()
     except KeyboardInterrupt:
-        exit_script()
+        print("\n")
+        return
     
     if choice == "0":
         return
@@ -3555,7 +2742,8 @@ def restart_tunnel_menu():
     try:
         choice = input(f"  {BOLD}{FG_MAGENTA}Select tunnel to restart:{RESET} ").strip()
     except KeyboardInterrupt:
-        exit_script()
+        print("\n")
+        return
     
     if choice == "0":
         return
@@ -3605,7 +2793,8 @@ def delete_tunnel_menu():
     try:
         choice = input(f"  {BOLD}{FG_RED}Select tunnel to delete:{RESET} ").strip()
     except KeyboardInterrupt:
-        exit_script()
+        print("\n")
+        return
     
     if choice == "0":
         return
@@ -3693,7 +2882,8 @@ def core_management_menu():
         try:
             choice = input(f"  {BOLD}{FG_CYAN}> {RESET}").strip()
         except KeyboardInterrupt:
-            exit_script()
+            print("\n")
+            return
         
         if choice == "0":
             return
@@ -3858,7 +3048,7 @@ def install_netrix_core():
         
         pause()
     except UserCancelled:
-        exit_script()
+        return
 
 def install_netrix_core_auto():
     """نصب/Reinstall خودکار هسته Netrix بدون سوال (برای update)"""
@@ -4091,7 +3281,7 @@ def update_netrix_core():
                 c_warn("  ⚠️  No tunnels were restarted (check logs and service status)")
         
     except UserCancelled:
-        exit_script()
+        return
 
 def delete_netrix_core():
     """حذف هسته Netrix"""
@@ -4158,7 +3348,7 @@ def delete_netrix_core():
         
         pause()
     except UserCancelled:
-        exit_script()
+        return
 
 # ========== System Optimizer ==========
 def system_optimizer_menu():
@@ -4195,7 +3385,7 @@ def system_optimizer_menu():
         ask_reboot()
         
     except UserCancelled:
-        exit_script()
+        return
 
 def sysctl_optimizations():
     """بهینه‌سازی تنظیمات sysctl"""
@@ -4459,12 +3649,12 @@ def ask_reboot():
                 c_ok("  ✅ Rebooting now...")
                 subprocess.run(["reboot"], check=False)
             except KeyboardInterrupt:
-                exit_script()
+                print(f"\n  {FG_YELLOW}Reboot cancelled.{RESET}")
         else:
             print(f"\n  {FG_WHITE}Reboot skipped. Remember to reboot later for full effect.{RESET}")
             
     except KeyboardInterrupt:
-        exit_script()
+        print(f"\n\n  {FG_YELLOW}Cancelled.{RESET}")
     except Exception as e:
         c_err(f"  ❌ Failed to reboot: {FG_RED}{str(e)}{RESET}")
 
@@ -4488,7 +3678,7 @@ def main_menu():
         else:
             print(f"    {FG_RED}Core Status: ❌ Not Installed{RESET}")
         
-        server_ip = safe_get_server_ip(prefer_public=False)
+        server_ip = get_server_ip()
         if server_ip:
             print(f"    {FG_CYAN}Server IP: {FG_WHITE}{server_ip}{RESET}")
         
@@ -4507,7 +3697,8 @@ def main_menu():
         try:
             ch = input(f"  {BOLD}{FG_CYAN}> {RESET}").strip()
         except KeyboardInterrupt:
-            exit_script()
+            print("\n\nExiting...")
+            return
         if ch == "1":
             start_configure_menu()
         elif ch == "2":
