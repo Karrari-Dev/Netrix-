@@ -2,6 +2,7 @@
 """
 Netrix Core - premium tunnel manager for Netrix
 """
+import tempfile
 import os, sys, time, subprocess, shutil, socket, signal, urllib.request, platform, json, stat, hashlib, ipaddress, re, datetime
 from typing import Optional, Dict, Any, List
 from pathlib import Path
@@ -13,7 +14,7 @@ except ImportError:
     sys.exit(1)
 
 # ========== Version ==========
-VERSION = "3.0.1"
+VERSION = "4.0.0"
 
 ROOT_DIR = Path("/root")
 NETRIX_CONFIG_DIR = ROOT_DIR / "netrix"
@@ -62,7 +63,7 @@ DEFAULT_UDP_SLICE_SIZE = 1500
 KCP_PROFILES = {
     "balanced":      {"nodelay": 0, "interval": 20, "resend": 2, "nc": 0, "sndwnd": 512,  "rcvwnd": 512,  "mtu": 1350, "data_shard": 10, "parity_shard": 3},
     "aggressive":    {"nodelay": 0, "interval": 10, "resend": 2, "nc": 1, "sndwnd": 2048, "rcvwnd": 2048, "mtu": 1400, "data_shard": 10, "parity_shard": 4},
-    "latency":       {"nodelay": 1, "interval": 5,  "resend": 1, "nc": 1, "sndwnd": 256,  "rcvwnd": 256,  "mtu": 1200, "data_shard": 10, "parity_shard": 5},
+    "latency":       {"nodelay": 1, "interval": 10,  "resend": 1, "nc": 1, "sndwnd": 256,  "rcvwnd": 256,  "mtu": 1200, "data_shard": 10, "parity_shard": 5},
     "cpu-efficient": {"nodelay": 0, "interval": 50, "resend": 3, "nc": 0, "sndwnd": 128,  "rcvwnd": 128,  "mtu": 1400, "data_shard": 10, "parity_shard": 2},
 }
 
@@ -677,8 +678,6 @@ def apply_rawsocket_detected_to_cfg(cfg: dict, transport: str) -> None:
                 cfg[yaml_key] = val
         if detected.get("local_flags"):
             cfg["rawsocket_local_flags"] = detected["local_flags"]
-        if detected.get("remote_flags"):
-            cfg["rawsocket_remote_flags"] = detected["remote_flags"]
     except Exception:
         pass
 
@@ -712,7 +711,6 @@ def merge_rawsocket_yaml(yaml_data: dict, cfg: dict, profile: str, *, paths: lis
             ("rawsocket_local_ip", "local_ip"),
             ("rawsocket_router_mac", "router_mac"),
             ("rawsocket_local_flags", "local_flags"),
-            ("rawsocket_remote_flags", "remote_flags"),
         ):
             val = cfg.get(src)
             if val:
@@ -734,6 +732,9 @@ def merge_rawsocket_yaml(yaml_data: dict, cfg: dict, profile: str, *, paths: lis
                 peer_ip = next(iter(candidates))
         if peer_ip:
             block["peer_ip"] = peer_ip
+        if cfg.get("rawsocket_remote_flags"):
+            raise ValueError("rawsocket.remote_flags is no longer supported")
+        block.update(cfg.get("rawsocket", {}))
         yaml_data["rawsocket"] = block
         return True
     except Exception:
@@ -828,7 +829,7 @@ def ask_transport(include_l3: bool = True, title: str = "TRANSPORT") -> str:
     options = [
         (1, "tcpmux", ""),
         (2, "tlsmux", ""),
-        (3, "realitymux", ""),
+        (3, "realitymux", "REALITY — key authenticated"),
         (4, "kcpmux", ""),
         (5, "wsmux", ""),
         (6, "wssmux", ""),
@@ -848,6 +849,30 @@ def ask_transport(include_l3: bool = True, title: str = "TRANSPORT") -> str:
         transports[idx] = key
     choice = ask_int(f"  {BOLD}Transport{RESET}", min_=1, max_=max(transports), default=1)
     return transports[choice]
+
+
+def ask_reality_settings(listener: bool) -> dict:
+    _section("XTLS REALITY")
+    if listener:
+        target = ask_nonempty("TLS 1.3 target (hostname:443): ")
+        names = ask_nonempty("Allowed SNI names (comma separated, from target certificate): ")
+        binary = ensure_netrix_available()
+        if not binary:
+            raise ValueError("Install the updated core before generating REALITY keys")
+        result = subprocess.run([str(binary), "-reality-keygen"], capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            raise ValueError("Core does not support REALITY key generation; update core first")
+        keys = json.loads(result.stdout)
+        print("Share ONLY these with the dialer:")
+        print("Public key: " + keys["public_key"])
+        print("Short ID: " + keys["short_id"])
+        print("The private key is saved only in the listener config (0600).")
+        return dict(target=target, server_names=[n.strip() for n in names.split(",")],
+                    private_key=keys["private_key"], short_ids=[keys["short_id"]],
+                    handshake_timeout=15, max_time_diff=60)
+    return dict(sni=ask_nonempty("SNI (one of listener server_names): "),
+                public_key=ask_nonempty("Listener public key: "),
+                short_id=ask_nonempty("Short ID: "), fingerprint="chrome", handshake_timeout=15)
 
 def ask_connection_mode_for_transport(transport: str, server_side: bool) -> bool:
     if transport == "l3":
@@ -873,6 +898,8 @@ L3_KERNEL_DEFAULT_ALGORITHM = "aes-256-gcm"
 L3_KERNEL_DEFAULT_KDF_ITERATIONS = 100000
 L3_KERNEL_DEFAULT_PCAP_PROMISC = True
 
+DEFAULT_PSK = "NetrixShared2026"
+
 def configure_l3_security(label: str = "L3") -> dict:
     print(f"\n  {BOLD}{FG_CYAN}{label} Security:{RESET}")
     enable_encryption = ask_yesno(f"  {BOLD}Enable Packet Encryption?{RESET}", default=True)
@@ -886,8 +913,22 @@ def configure_l3_security(label: str = "L3") -> dict:
         print(f"  {FG_CYAN}3){RESET} chacha20-poly1305")
         algo_choice = ask_int(f"  {BOLD}Select algorithm:{RESET}", min_=1, max_=3, default=1)
         algorithm = {1: "aes-256-gcm", 2: "aes-128-gcm", 3: "chacha20-poly1305"}[algo_choice]
-        psk = ask_nonempty(f"  {BOLD}Packet Encryption PSK:{RESET}")
-        kdf_iterations = ask_int(f"  {BOLD}KDF Iterations:{RESET} {FG_WHITE}(default: 100000){RESET}", min_=1, max_=5000000, default=100000)
+    import base64
+    default_psk = DEFAULT_PSK
+    print("  Enter uses the same default on both servers. Custom keys must match.")
+    while True:
+        psk = ask_nonempty(f"  {BOLD}Peer Authentication PSK (16..1024 bytes):{RESET}", default=default_psk).strip()
+        try:
+            if psk.lower().startswith(("b64:", "base64:")):
+                raw = base64.b64decode(psk.split(":", 1)[1].strip(), validate=True)
+            else:
+                raw = psk.encode("utf-8")
+            if 16 <= len(raw) <= 1024:
+                break
+        except (ValueError, base64.binascii.Error):
+            pass
+        c_err("PSK must contain 16..1024 decoded bytes; use a random key. Invalid base64 is not accepted.")
+    kdf_iterations = ask_int(f"  {BOLD}KDF Iterations:{RESET} {FG_WHITE}(default: 100000){RESET}", min_=1, max_=5000000, default=100000)
     return {
         "enable_encryption": enable_encryption,
         "algorithm": algorithm,
@@ -1000,8 +1041,9 @@ def configure_l3_runtime(role: str, label: str = "L3") -> dict:
     print(f"  {FG_BLUE}3){RESET} {FG_WHITE}icmp{RESET}")
     print(f"  {FG_BLUE}4){RESET} {FG_WHITE}pcap{RESET}")
     print(f"  {FG_BLUE}5){RESET} {FG_WHITE}tcp{RESET}")
-    carrier_choice = ask_int(f"  {BOLD}Carrier:{RESET}", min_=1, max_=5)
-    carrier = {1: "raw", 2: "udp", 3: "icmp", 4: "pcap", 5: "tcp"}[carrier_choice]
+    print(f"  {FG_BLUE}6){RESET} {FG_WHITE}raw50{RESET}")
+    carrier_choice = ask_int(f"  {BOLD}Carrier:{RESET}", min_=1, max_=6)
+    carrier = {1: "raw", 2: "udp", 3: "icmp", 4: "pcap", 5: "tcp", 6: "raw50"}[carrier_choice]
 
     print(f"\n  {BOLD}{FG_CYAN}{label} Endpoints:{RESET}")
     auto_ip = safe_get_server_ip(timeout=1.0, prefer_public=False) or ""
@@ -1386,7 +1428,7 @@ def _l3_build_yaml_block(l3_cfg: dict) -> tuple[dict, str]:
             l3_cfg.get("enable_encryption", L3_KERNEL_DEFAULT_ENABLE_ENCRYPTION)
         ),
         "algorithm": l3_cfg.get("algorithm", L3_KERNEL_DEFAULT_ALGORITHM),
-        "psk": l3_cfg.get("psk", ""),
+        "psk": l3_cfg.get("psk") or DEFAULT_PSK,
         "kdf_iterations": int(l3_cfg.get("kdf_iterations", L3_KERNEL_DEFAULT_KDF_ITERATIONS)),
         "so_sndbuf": int(l3_cfg.get("so_sndbuf", 0) or 0),
         "so_rcvbuf": int(l3_cfg.get("so_rcvbuf", 0) or 0),
@@ -1410,7 +1452,7 @@ def _l3_build_yaml_block(l3_cfg: dict) -> tuple[dict, str]:
 def _l3_yaml_comments(carrier: str) -> dict:
     comments = {
         "l3.profile": "L3 runtime profile (balanced|aggressive|latency|cpu-efficient). Independent from global profile.",
-        "l3.carrier": "Outer carrier: raw, udp, icmp, pcap, or tcp (pcap uses libpcap for RX; tcp uses stream carrier)",
+        "l3.carrier": "Outer carrier: raw, raw50, udp, icmp, pcap, or tcp (pcap uses libpcap for RX; tcp uses stream carrier)",
         "l3.listen_ip": "Local outer IP endpoint",
         "l3.dst_ip": "Peer outer IP endpoint",
         "l3.interface": "Network interface used for routing and pcap/raw receive (auto-detected when possible)",
@@ -1421,7 +1463,7 @@ def _l3_yaml_comments(carrier: str) -> dict:
         "l3.heartbeat_timeout": "Heartbeat timeout before peer becomes not-ready (0 = engine default 30)",
         "l3.enable_encryption": "Enable per-packet AEAD encryption (engine default true when omitted)",
         "l3.algorithm": "Packet encryption algorithm: aes-256-gcm, aes-128-gcm, chacha20-poly1305",
-        "l3.psk": "Packet encryption PSK",
+        "l3.psk": "Packet encryption PSK: 16..1024 decoded bytes; random key recommended",
         "l3.kdf_iterations": "PBKDF2 iterations for deriving the packet key (0 = engine default 100000)",
         "l3.so_sndbuf": "Socket send buffer (0 = kernel default)",
         "l3.so_rcvbuf": "Socket receive buffer (0 = kernel default)",
@@ -1507,6 +1549,22 @@ def detect_rawsocket_pcap_defaults() -> Dict[str, Any]:
         pass
     return out
 
+def configure_tls_private_trust() -> dict:
+    """Trust a supplied CA/certificate while keeping TLS verification enabled."""
+    while True:
+        path = Path(ask_nonempty("CA/certificate PEM path (on this machine):")).expanduser()
+        try:
+            import ssl
+            ssl.create_default_context(cafile=str(path))
+            break
+        except (OSError, ssl.SSLError) as exc:
+            c_err(f"Cannot load CA file: {exc}")
+    name = input("Certificate DNS name (blank = connection hostname): ").strip()
+    result = {"tls_ca_file": str(path.resolve()), "tls_insecure_skip_verify": False}
+    if name:
+        result["tls_server_name"] = name
+    return result
+
 def get_default_advanced_config(transport: str) -> dict:
     """تنظیمات پیش‌فرض Advanced بر اساس transport - همگام با netrix.go (مقادیر همان عددهای هسته)"""
     base_config = {
@@ -1531,14 +1589,15 @@ def get_default_advanced_config(transport: str) -> dict:
             "udp_read_buffer": 4194304,  
             "udp_write_buffer": 4194304  
         })
-    elif transport in ("tlsmux", "tls", "realitymux", "reality"):
+    elif transport in ("tlsmux", "tls"):
         base_config.update({
             "tls_insecure_skip_verify": False
         })
     elif transport in ("wsmux", "wssmux"):
         base_config.update({
-            "websocket_read_buffer": 524288, 
-            "websocket_write_buffer": 524288, 
+            "websocket_read_buffer": 16384, 
+            "websocket_write_buffer": 16384,
+            "websocket_message_bytes": 16384, 
             "websocket_compression": False    
         })
     
@@ -1551,7 +1610,13 @@ def parse_yaml_config(config_path: Path) -> Optional[Dict[str, Any]]:
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
-    except Exception:
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        where = f":{mark.line + 1}:{mark.column + 1}" if mark else ""
+        c_err(f"Config error {config_path}{where}: {getattr(exc, 'problem', 'invalid YAML')}")
+        return None
+    except OSError as exc:
+        c_err(f"Cannot read config {config_path}: {exc}")
         return None
 
 def get_certificate_with_acme(domain: str, email: str, port: int) -> tuple[Optional[str], Optional[str]]:
@@ -1678,88 +1743,39 @@ def get_certificate_with_acme(domain: str, email: str, port: int) -> tuple[Optio
     return str(cert_file), str(key_file)
 
 def write_yaml_with_comments(file_path: Path, data: dict, comments: dict = None):
-    """نوشتن YAML با comment های default values"""
-    if comments is None:
-        comments = {}
-    
-    lines = []
-    
-    def write_dict(d: dict, indent: int = 0, parent_key: str = ""):
-        for key, value in d.items():
-            full_key = f"{parent_key}.{key}" if parent_key else key
-            comment = comments.get(full_key, "")
-            
-            if isinstance(value, dict):
-                if comment:
-                    lines.append(f"{'  ' * indent}{key}:  # {comment}")
-                else:
-                    lines.append(f"{'  ' * indent}{key}:")
-                write_dict(value, indent + 1, full_key)
-            elif isinstance(value, list):
-                if value and all(isinstance(item, (int, str, float)) and not isinstance(item, dict) for item in value):
-                    formatted_items = []
-                    for item in value:
-                        if isinstance(item, str):
-                            escaped = item.replace('"', '\\"')
-                            formatted_items.append(f'"{escaped}"')
-                        else:
-                            formatted_items.append(str(item))
-                    inline_list = "[" + ",".join(formatted_items) + "]"
-                    if comment:
-                        lines.append(f"{'  ' * indent}{key}: {inline_list}  # {comment}")
-                    else:
-                        lines.append(f"{'  ' * indent}{key}: {inline_list}")
-                else:
-                    if comment:
-                        lines.append(f"{'  ' * indent}{key}:  # {comment}")
-                    else:
-                        lines.append(f"{'  ' * indent}{key}:")
-                    for item in value:
-                        if isinstance(item, dict):
-                            lines.append(f"{'  ' * (indent + 1)}-")
-                            for k, v in item.items():
-                                if isinstance(v, bool):
-                                    fv = "true" if v else "false"
-                                elif v is None:
-                                    fv = '""'
-                                else:
-                                    sv = str(v)
-                                    if isinstance(v, str) and (sv.startswith('[') or sv.startswith('{') or ':' in sv or '#' in sv):
-                                        fv = f'"{sv}"'
-                                    else:
-                                        fv = sv if sv != "" else '""'
-                                lines.append(f"{'  ' * (indent + 2)}{k}: {fv}")
-                        else:
-                            lines.append(f"{'  ' * (indent + 1)}- {item}")
-            else:
-                if isinstance(value, bool):
-                    formatted_value = "true" if value else "false"
-                elif value is None:
-                    formatted_value = '""'
-                else:
-                    str_value = str(value)
-                    needs_quote = (
-                        isinstance(value, str) and 
-                        (str_value.startswith('[') or str_value.startswith('{') or 
-                         ':' in str_value or '#' in str_value or 
-                         str_value.startswith('*') or str_value.startswith('&') or
-                         str_value.startswith('/')) 
-                    )
-                    if needs_quote:
-                        formatted_value = f'"{str_value}"'
-                    else:
-                        formatted_value = str_value if str_value != "" else '""'
-                
-                if comment:
-                    lines.append(f"{'  ' * indent}{key}: {formatted_value}  # {comment}")
-                else:
-                    lines.append(f"{'  ' * indent}{key}: {formatted_value}")
-    
-    write_dict(data)
-    
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines))
-        f.write('\n')
+    """Write settings-only YAML, verify round-trip, then atomically replace with mode 0600."""
+    content = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    if yaml.safe_load(content) != data:
+        raise ValueError("YAML serialization did not preserve config values")
+    file_path = Path(file_path)
+    fd, name = tempfile.mkstemp(prefix=".netrix-", suffix=".yaml", dir=file_path.parent)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as out:
+            out.write(content)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(name, file_path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def validate_core_config(config_path: Path, netrix_bin: str = None) -> bool:
+    """Offline core validation, before stopping a working tunnel."""
+    netrix_bin = netrix_bin or ensure_netrix_available()
+    if not netrix_bin:
+        return False
+    try:
+        result = subprocess.run([str(netrix_bin), "-check-config", str(config_path)],
+                                capture_output=True, text=True, timeout=15)
+        if result.returncode != 0:
+            c_err((result.stderr or result.stdout).strip() or "Config validation failed")
+            return False
+        return True
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        c_err(f"Cannot validate config {config_path}: {exc}")
+        return False
+
 
 def create_server_config_file(tport: int, cfg: dict) -> Path:
     """ساخت فایل کانفیگ YAML برای سرور"""
@@ -1801,16 +1817,6 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         yaml_data["key_file"] = cfg["key_file"]
         print(f"  {FG_GREEN}✅ Certificate files will be written to YAML: cert={cfg['cert_file']}, key={cfg['key_file']}{RESET}")
     
-    if transport == "realitymux" and cfg.get("reality_sni") and cfg.get("reality_fingerprint"):
-        yaml_data["reality"] = {
-            "sni": cfg.get("reality_sni", "cloudflare.com"),
-            "fingerprint": cfg.get("reality_fingerprint", "chrome")
-        }
-        if cfg.get("reality_short_id"):
-            yaml_data["reality"]["short_id"] = cfg.get("reality_short_id")
-        if cfg.get("reality_public_key"):
-            yaml_data["reality"]["public_key"] = cfg.get("reality_public_key")
-        print(f"  {FG_GREEN}✅ REALITY config will be written to YAML: SNI={cfg.get('reality_sni')}, Fingerprint={cfg.get('reality_fingerprint')}{RESET}")
     
     yaml_data["profile"] = profile
     
@@ -1835,8 +1841,11 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
             "nc": kcp_default["nc"],
             "sndwnd": kcp_default["sndwnd"],
             "rcvwnd": kcp_default["rcvwnd"],
-            "mtu": kcp_default["mtu"]
+            "mtu": kcp_default["mtu"],
+            "data_shard": kcp_default["data_shard"],
+            "parity_shard": kcp_default["parity_shard"]
         }
+        yaml_data["kcp"].update(cfg.get("kcp", {}))
     if is_rawsocket_transport(transport):
         if not merge_rawsocket_yaml(yaml_data, cfg, profile, direct_mode=direct_mode):
             raise ValueError("rawsocket YAML block could not be built")
@@ -1860,6 +1869,10 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
         if "udp_data_slice_size" in buffer_config:
             yaml_data["advanced"]["udp_data_slice_size"] = buffer_config["udp_data_slice_size"]
     
+    for field in ("tls_ca_file", "tls_server_name", "tls_handshake_timeout"):
+        if field in cfg:
+            yaml_data["advanced"][field] = cfg[field]
+
     if cfg.get("tls_insecure_skip_verify") is True:
         yaml_data["advanced"]["tls_insecure_skip_verify"] = True
     
@@ -1903,7 +1916,7 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
     yaml_data["health_port"] = cfg.get('health_port', 19080)
     
     if "max_sessions" in cfg:
-        yaml_data["max_sessions"] = cfg['max_sessions']
+        raise ValueError("max_sessions is unsupported; use advanced.max_connections for accepted tunnel connections")
     
     if "heartbeat" in cfg:
         yaml_data["heartbeat"] = cfg['heartbeat']
@@ -2032,6 +2045,8 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
             "kcp.sndwnd": f"KCP send window (default: {kcp_default['sndwnd']})",
             "kcp.rcvwnd": f"KCP receive window (default: {kcp_default['rcvwnd']})",
             "kcp.mtu": f"KCP MTU (default: {kcp_default['mtu']})",
+            "kcp.data_shard": "FEC data shards; must match the other peer (0/0 disables FEC)",
+            "kcp.parity_shard": "FEC parity shards; must match the other peer",
         })
     if transport in ("rawsocket", "rawmux"):
         rs_default = get_default_rawsocket_config(profile)
@@ -2041,9 +2056,11 @@ def create_server_config_file(tport: int, cfg: dict) -> Path:
             "rawsocket.rcv_wnd": f"rawsocket receive window (default: {rs_default['rcv_wnd']})",
             "rawsocket.data_shard": f"FEC data shards (default: {rs_default['data_shard']})",
             "rawsocket.parity_shard": f"FEC parity shards (default: {rs_default['parity_shard']})",
-            "rawsocket.sock_buf": f"UDP buffer in bytes (default: {rs_default.get('sock_buf', RAWSOCKET_SOCK_BUF)})",
+            "rawsocket.sock_buf": f"pcap capture buffer in bytes (default: {rs_default.get('sock_buf', RAWSOCKET_SOCK_BUF)})",
         })
     
+    if cfg.get("reality") is not None:
+        yaml_data["reality"] = dict(cfg["reality"])
     write_yaml_with_comments(config_path, yaml_data, comments)
     
     try:
@@ -2094,15 +2111,6 @@ def create_client_config_file(cfg: dict) -> Path:
         yaml_data["connection_pool"] = cfg.get('connection_pool', 8)
         
         transport = cfg.get('transport', 'tcpmux')
-        if transport == "realitymux" and cfg.get('reality_sni') and cfg.get('reality_fingerprint'):
-            yaml_data["reality"] = {
-                "sni": cfg.get('reality_sni', 'cloudflare.com'),
-                "fingerprint": cfg.get('reality_fingerprint', 'chrome')
-            }
-            if cfg.get('reality_short_id'):
-                yaml_data["reality"]["short_id"] = cfg.get('reality_short_id')
-            if cfg.get('reality_public_key'):
-                yaml_data["reality"]["public_key"] = cfg.get('reality_public_key')
         
         if cfg.get("cert_file") and cfg.get("key_file"):
             yaml_data["cert_file"] = cfg["cert_file"]
@@ -2131,15 +2139,8 @@ def create_client_config_file(cfg: dict) -> Path:
                 path_data["dial_timeout"] = path['dial_timeout']
             if path.get('aggressive_pool'):
                 path_data["aggressive_pool"] = path['aggressive_pool']
-            if path_transport == "realitymux" and path.get('reality_sni') and path.get('reality_fingerprint'):
-                path_data["reality"] = {
-                    "sni": path.get('reality_sni', 'cloudflare.com'),
-                    "fingerprint": path.get('reality_fingerprint', 'chrome')
-                }
-                if path.get('reality_short_id'):
-                    path_data["reality"]["short_id"] = path.get('reality_short_id')
-                if path.get('reality_public_key'):
-                    path_data["reality"]["public_key"] = path.get('reality_public_key')
+            if path.get("reality") is not None:
+                path_data["reality"] = dict(path["reality"])
             yaml_data["paths"].append(path_data)
         
         main_transport = paths[0].get('transport', 'tcpmux')
@@ -2169,8 +2170,11 @@ def create_client_config_file(cfg: dict) -> Path:
             "nc": kcp_default["nc"],
             "sndwnd": kcp_default["sndwnd"],
             "rcvwnd": kcp_default["rcvwnd"],
-            "mtu": kcp_default["mtu"]
+            "mtu": kcp_default["mtu"],
+            "data_shard": kcp_default["data_shard"],
+            "parity_shard": kcp_default["parity_shard"]
         }
+        yaml_data["kcp"].update(cfg.get("kcp", {}))
     needs_rawsocket = any(is_rawsocket_transport(p.get("transport", "")) for p in paths) or (
         direct_mode and is_rawsocket_transport(main_transport)
     )
@@ -2186,6 +2190,10 @@ def create_client_config_file(cfg: dict) -> Path:
             yaml_data["advanced"][key] = value
     
     
+    for field in ("tls_ca_file", "tls_server_name", "tls_handshake_timeout"):
+        if field in cfg:
+            yaml_data["advanced"][field] = cfg[field]
+
     if "tls_insecure_skip_verify" in cfg:
         yaml_data["advanced"]["tls_insecure_skip_verify"] = cfg["tls_insecure_skip_verify"]
     
@@ -2319,8 +2327,12 @@ def create_client_config_file(cfg: dict) -> Path:
             "kcp.sndwnd": f"KCP send window (default: {kcp_default['sndwnd']})",
             "kcp.rcvwnd": f"KCP receive window (default: {kcp_default['rcvwnd']})",
             "kcp.mtu": f"KCP MTU (default: {kcp_default['mtu']})",
+            "kcp.data_shard": "FEC data shards; must match the other peer (0/0 disables FEC)",
+            "kcp.parity_shard": "FEC parity shards; must match the other peer",
         })
     
+    if cfg.get("reality") is not None:
+        yaml_data["reality"] = dict(cfg["reality"])
     write_yaml_with_comments(config_path, yaml_data, comments)
     
     try:
@@ -2429,7 +2441,7 @@ def list_tunnels() -> List[Dict[str,Any]]:
                         f"{sec_cfg.get('dst_ip', '?')}:{sec_cfg.get('dst_port', '?')} tun={tun_cfg.get('local', '?')} health={tport}"
                     )
                 else:
-                    summary = f"server L3 raw {sec_cfg.get('listen_ip','?')} -> {sec_cfg.get('dst_ip','?')} tun={tun_cfg.get('local','?')} health={tport}"
+                    summary = f"server L3 {carrier} {sec_cfg.get('listen_ip','?')} -> {sec_cfg.get('dst_ip','?')} tun={tun_cfg.get('local','?')} health={tport}"
             elif direct_mode:
                 connect = cfg.get('connect', '')
                 tport = connect.split(':')[-1] if ':' in connect else ''
@@ -2498,7 +2510,7 @@ def list_tunnels() -> List[Dict[str,Any]]:
                         f"{sec_cfg.get('dst_ip', '?')}:{sec_cfg.get('dst_port', '?')} tun={tun_cfg.get('local', '?')}"
                     )
                 else:
-                    summary = f"client L3 raw {sec_cfg.get('listen_ip','?')} -> {sec_cfg.get('dst_ip','?')} tun={tun_cfg.get('local','?')}"
+                    summary = f"client L3 {carrier} {sec_cfg.get('listen_ip','?')} -> {sec_cfg.get('dst_ip','?')} tun={tun_cfg.get('local','?')}"
             elif direct_mode:
                 listen = cfg.get('listen', '')
                 tport = listen.split(':')[-1] if ':' in listen else ''
@@ -2582,7 +2594,7 @@ def stop_tunnel(config_path: Path) -> bool:
             ["systemctl", "stop", service_name],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=45
         )
         return result.returncode == 0
     except subprocess.TimeoutExpired:
@@ -2597,7 +2609,10 @@ def stop_tunnel(config_path: Path) -> bool:
 
 def restart_tunnel(config_path: Path) -> bool:
     """ریستارت تانل از طریق systemd service - با stop/start جداگانه برای cleanup کامل"""
+    if not create_systemd_service_for_tunnel(config_path):
+        return False
     service_name = f"netrix-{config_path.stem}"
+    start_requested = False
     try:
         subprocess.run(
             ["systemctl", "daemon-reload"],
@@ -2610,9 +2625,12 @@ def restart_tunnel(config_path: Path) -> bool:
             ["systemctl", "stop", service_name],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=45
         )
         
+        if stop_result.returncode != 0:
+            c_err(f"Cannot stop tunnel: {stop_result.stderr.strip()}")
+            return False
         time.sleep(1)
         
         check_result = subprocess.run(
@@ -2622,6 +2640,7 @@ def restart_tunnel(config_path: Path) -> bool:
             timeout=3
         )
         
+        start_requested = True
         start_result = subprocess.run(
             ["systemctl", "start", service_name],
             capture_output=True,
@@ -2654,8 +2673,11 @@ def restart_tunnel(config_path: Path) -> bool:
             except:
                 pass
             return False
-    except subprocess.TimeoutExpired:
-        c_warn(f"  ⚠️  Restart timeout - checking service status...")
+    except subprocess.TimeoutExpired as exc:
+        if not start_requested:
+            c_warn("  ⚠️  Restart did not complete: pre-start operation timed out")
+            return False
+        c_warn("  ⚠️  Start/status check timed out after stop - checking new service status...")
 
         try:
             check_result = subprocess.run(
@@ -2674,6 +2696,10 @@ def restart_tunnel(config_path: Path) -> bool:
         return False
 
 # ========== RawSocket iptables helpers ==========
+def _rawsocket_rule_tag(config_path: Path) -> str:
+    import hashlib
+    return "netrix-" + hashlib.sha256(config_path.stem.encode()).hexdigest()[:16]
+
 def _rawsocket_listen_port_from_config(config_path: Path) -> Optional[str]:
     """اگر کانفیگ با ترنسپورت rawsocket/rawmux روی پورتی listen کند (Direct server)، آن پورت را برمی‌گرداند."""
     cfg = parse_yaml_config(config_path)
@@ -2690,39 +2716,24 @@ def _rawsocket_listen_port_from_config(config_path: Path) -> Optional[str]:
         return port
     return None
 
-def _rawsocket_dial_peer_from_config(config_path: Path) -> Optional[tuple]:
-    """اگر این کانفیگ با rawsocket به یک ریموت وصل می‌شود، (ip, port) ریموت را برمی‌گرداند.
-    - Reverse client (mode=client): اولین path با transport rawsocket/rawmux
-    - Direct server (mode=server, direct): connect"""
-    cfg = parse_yaml_config(config_path)
-    if not cfg:
-        return None
-    mode = (cfg.get("mode") or "").lower()
-    if mode == "client":
-        paths = cfg.get("paths") or []
-        for p in paths:
-            pt = (p.get("transport") or "").lower()
-            if pt not in ("rawsocket", "rawmux"):
-                continue
-            addr = (p.get("addr") or "").strip()
-            if addr and ":" in addr:
-                host, port_s = addr.rsplit(":", 1)
-                host, port_s = host.strip(), port_s.strip()
-                if host and port_s.isdigit() and 1 <= int(port_s) <= 65535:
-                    return (host, port_s)
-        return None
-    transport = (cfg.get("transport") or "").lower()
-    if transport not in ("rawsocket", "rawmux"):
-        return None
-    direct = bool(cfg.get("direct"))
-    if mode == "server" and direct:
-        connect = (cfg.get("connect") or "").strip()
-        if connect and ":" in connect:
-            host, port_s = connect.rsplit(":", 1)
-            host, port_s = host.strip(), port_s.strip()
-            if host and port_s.isdigit() and 1 <= int(port_s) <= 65535:
-                return (host, port_s)
-    return None
+def _rawsocket_dial_peers_from_config(config_path: Path) -> list:
+    """Every rawsocket dial endpoint, deduplicated and safe for firewall arguments."""
+    cfg = parse_yaml_config(config_path) or {}
+    endpoints = []
+    if cfg.get("mode") == "client" and not cfg.get("direct"):
+        endpoints = [p.get("addr", "") for p in cfg.get("paths", []) if is_rawsocket_transport(p.get("transport", ""))]
+    elif cfg.get("mode") == "server" and cfg.get("direct") and is_rawsocket_transport(cfg.get("transport", "")):
+        endpoints = [cfg.get("connect", "")]
+    peers = []
+    for endpoint in endpoints:
+        host, port = endpoint.rsplit(":", 1)
+        host = str(ipaddress.IPv4Address(host))
+        if not port.isdigit() or not 1 <= int(port) <= 65535:
+            raise ValueError("rawsocket requires an IPv4 address and port 1..65535")
+        peer = (host, str(int(port)))
+        if peer not in peers:
+            peers.append(peer)
+    return peers
 
 # ========== System Service ==========
 def create_systemd_service_for_tunnel(config_path: Path) -> bool:
@@ -2731,11 +2742,14 @@ def create_systemd_service_for_tunnel(config_path: Path) -> bool:
     if not netrix_bin:
         return False
     
+    if not validate_core_config(config_path, netrix_bin):
+        return False
+
     service_name = f"netrix-{config_path.stem}"
     service_path = Path(f"/etc/systemd/system/{service_name}.service")
     
     rawsocket_port = _rawsocket_listen_port_from_config(config_path)
-    dial_peer = _rawsocket_dial_peer_from_config(config_path)
+    dial_peers = _rawsocket_dial_peers_from_config(config_path)
     exec_start_pre = ""
     exec_stop_post = ""
     pre_cmds = []
@@ -2746,15 +2760,17 @@ def create_systemd_service_for_tunnel(config_path: Path) -> bool:
         pre_cmds.append(f"iptables -t mangle -D OUTPUT -p tcp --sport {rawsocket_port} --tcp-flags RST RST -j DROP 2>/dev/null; iptables -t mangle -A OUTPUT -p tcp --sport {rawsocket_port} --tcp-flags RST RST -j DROP")
         pre_cmds.append(f"iptables -t mangle -D PREROUTING -p tcp --dport {rawsocket_port} --tcp-flags RST RST -j DROP 2>/dev/null; iptables -t mangle -A PREROUTING -p tcp --dport {rawsocket_port} --tcp-flags RST RST -j DROP")
         post_cmds.append(f"iptables -t raw -D PREROUTING -p tcp --dport {rawsocket_port} -j NOTRACK 2>/dev/null; iptables -t raw -D OUTPUT -p tcp --sport {rawsocket_port} -j NOTRACK 2>/dev/null; iptables -t mangle -D OUTPUT -p tcp --sport {rawsocket_port} --tcp-flags RST RST -j DROP 2>/dev/null; iptables -t mangle -D PREROUTING -p tcp --dport {rawsocket_port} --tcp-flags RST RST -j DROP 2>/dev/null")
-    if dial_peer:
-        peer_ip, peer_port = dial_peer
+    for peer_ip, peer_port in dial_peers:
         pre_cmds.append(f"iptables -t raw -D OUTPUT -p tcp -d {peer_ip} --dport {peer_port} -j NOTRACK 2>/dev/null; iptables -t raw -A OUTPUT -p tcp -d {peer_ip} --dport {peer_port} -j NOTRACK")
         pre_cmds.append(f"iptables -t raw -D PREROUTING -p tcp -s {peer_ip} --sport {peer_port} -j NOTRACK 2>/dev/null; iptables -t raw -A PREROUTING -p tcp -s {peer_ip} --sport {peer_port} -j NOTRACK")
         pre_cmds.append(f"iptables -t mangle -D OUTPUT -p tcp -d {peer_ip} --dport {peer_port} --tcp-flags RST RST -j DROP 2>/dev/null; iptables -t mangle -A OUTPUT -p tcp -d {peer_ip} --dport {peer_port} --tcp-flags RST RST -j DROP")
         pre_cmds.append(f"iptables -t mangle -D PREROUTING -p tcp -s {peer_ip} --sport {peer_port} --tcp-flags RST RST -j DROP 2>/dev/null; iptables -t mangle -A PREROUTING -p tcp -s {peer_ip} --sport {peer_port} --tcp-flags RST RST -j DROP")
         post_cmds.append(f"iptables -t raw -D OUTPUT -p tcp -d {peer_ip} --dport {peer_port} -j NOTRACK 2>/dev/null; iptables -t raw -D PREROUTING -p tcp -s {peer_ip} --sport {peer_port} -j NOTRACK 2>/dev/null; iptables -t mangle -D OUTPUT -p tcp -d {peer_ip} --dport {peer_port} --tcp-flags RST RST -j DROP 2>/dev/null; iptables -t mangle -D PREROUTING -p tcp -s {peer_ip} --sport {peer_port} --tcp-flags RST RST -j DROP 2>/dev/null")
+    rule_tag = _rawsocket_rule_tag(config_path)
+    pre_cmds = [cmd.replace(" -j ", f" -m comment --comment {rule_tag} -j ").replace("2>/dev/null;", "2>/dev/null || true;") for cmd in pre_cmds]
+    post_cmds = [cmd.replace(" -j ", f" -m comment --comment {rule_tag} -j ") for cmd in post_cmds]
     if pre_cmds:
-        exec_start_pre = "ExecStartPre=-/bin/sh -c '" + "; ".join(pre_cmds) + "'\n"
+        exec_start_pre = "ExecStartPre=/bin/sh -c 'set -e; " + "; ".join(pre_cmds) + "'\n"
     if post_cmds:
         exec_stop_post = "ExecStopPost=-/bin/sh -c '" + "; ".join(post_cmds) + "'\n"
     
@@ -2764,14 +2780,13 @@ After=network.target
 
 [Service]
 Type=simple
-Environment=LIC_CACHE_DIR=/var/lib/netrix
-ExecStartPre=/bin/mkdir -p /var/lib/netrix
-ExecStartPre=/bin/chmod 700 /var/lib/netrix
+ExecCondition={netrix_bin} -check-config {config_path}
 {exec_start_pre}{exec_stop_post}ExecStart={netrix_bin} -config {config_path}
-Restart=always
+Restart=on-failure
+RestartPreventExitStatus=78
 RestartSec=5
 TimeoutStartSec=120
-TimeoutStopSec=15
+TimeoutStopSec=40
 KillMode=mixed
 KillSignal=SIGTERM
 FinalKillSignal=SIGKILL
@@ -2847,12 +2862,12 @@ def cleanup_iptables_rules(config_path: Path) -> bool:
                 ["iptables", "-t", "mangle", "-D", "PREROUTING", "-p", "tcp", "--dport", rawsocket_port, "--tcp-flags", "RST", "RST", "-j", "DROP"],
             ]:
                 try:
+                    args[args.index("-j"):args.index("-j")] = ["-m", "comment", "--comment", _rawsocket_rule_tag(config_path)]
                     subprocess.run(args, capture_output=True, text=True, timeout=5)
                 except Exception:
                     pass
-        dial_peer = _rawsocket_dial_peer_from_config(config_path)
-        if dial_peer:
-            peer_ip, peer_port = dial_peer
+        dial_peers = _rawsocket_dial_peers_from_config(config_path)
+        for peer_ip, peer_port in dial_peers:
             for args in [
                 ["iptables", "-t", "raw", "-D", "OUTPUT", "-p", "tcp", "-d", peer_ip, "--dport", peer_port, "-j", "NOTRACK"],
                 ["iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-s", peer_ip, "--sport", peer_port, "-j", "NOTRACK"],
@@ -2860,6 +2875,7 @@ def cleanup_iptables_rules(config_path: Path) -> bool:
                 ["iptables", "-t", "mangle", "-D", "PREROUTING", "-p", "tcp", "-s", peer_ip, "--sport", peer_port, "--tcp-flags", "RST", "RST", "-j", "DROP"],
             ]:
                 try:
+                    args[args.index("-j"):args.index("-j")] = ["-m", "comment", "--comment", _rawsocket_rule_tag(config_path)]
                     subprocess.run(args, capture_output=True, text=True, timeout=5)
                 except Exception:
                     pass
@@ -2933,7 +2949,7 @@ def cleanup_iptables_rules(config_path: Path) -> bool:
             if not safe_name:
                 safe_name = "netrix0"
 
-            hash_input = f"l2tp:{safe_name}"
+            hash_input = f"l2tp:{tun_name}"
             hash_bytes = hashlib.sha256(hash_input.encode()).digest()
             suffix = hash_bytes.hex()[:6]
             
@@ -3087,46 +3103,8 @@ def create_server_tunnel():
             create_server_l3_tunnel()
             return
         direct_mode = ask_connection_mode_for_transport(transport, server_side=True)
+        reality_settings = ask_reality_settings(not direct_mode) if transport == "realitymux" else None
         
-        reality_sni = ""
-        reality_fingerprint = ""
-        if transport == "realitymux" and direct_mode:
-            print(f"\n  {BOLD}🎭 REALITY Configuration:{RESET}")
-                                                            
-            print(f"\n  {BOLD}SNI Target:{RESET}")
-            print(f"  {FG_CYAN}1){RESET} {FG_WHITE}cloudflare.com{RESET} (Recommended - most common)")
-            print(f"  {FG_CYAN}2){RESET} {FG_WHITE}google.com{RESET}")
-            print(f"  {FG_CYAN}3){RESET} {FG_WHITE}microsoft.com{RESET}")
-            print(f"  {FG_CYAN}4){RESET} {FG_WHITE}apple.com{RESET}")
-            print(f"  {FG_CYAN}5){RESET} {FG_YELLOW}random{RESET} (Changes per connection - maximum stealth)")
-            print(f"  {FG_CYAN}6){RESET} {FG_YELLOW}Custom{RESET}")
-            sni_choice = ask_int(f"  {BOLD}Select SNI target:{RESET}", min_=1, max_=6, default=5) 
-            sni_options = {1: "cloudflare.com", 2: "google.com", 3: "microsoft.com", 4: "apple.com", 5: "random"}
-            if sni_choice == 6:
-                reality_sni = ask_nonempty(f"  {BOLD}Enter custom SNI:{RESET}")
-            else:
-                reality_sni = sni_options[sni_choice]
-            
-            print(f"\n  {BOLD}TLS Fingerprint:{RESET}")
-            print(f"  {FG_WHITE}Select which browser's TLS fingerprint to mimic:{RESET}")
-            print(f"  {FG_CYAN}1){RESET} {FG_WHITE}Chrome{RESET} (Recommended - most common)")
-            print(f"  {FG_CYAN}2){RESET} {FG_WHITE}Firefox{RESET}")
-            print(f"  {FG_CYAN}3){RESET} {FG_WHITE}Safari{RESET}")
-            print(f"  {FG_CYAN}4){RESET} {FG_WHITE}Edge{RESET}")
-            print(f"  {FG_CYAN}5){RESET} {FG_WHITE}iOS{RESET}")
-            print(f"  {FG_CYAN}6){RESET} {FG_WHITE}Android{RESET}")
-            print(f"  {FG_CYAN}7){RESET} {FG_YELLOW}random{RESET} (Changes per connection - maximum stealth)")
-            fingerprint_choice = ask_int(f"  {BOLD}Select fingerprint:{RESET}", min_=1, max_=7, default=7)
-            fingerprint_options = {1: "chrome", 2: "firefox", 3: "safari", 4: "edge", 5: "ios", 6: "android", 7: "random"}
-            reality_fingerprint = fingerprint_options[fingerprint_choice]
-            
-            c_ok(f"  ✅ REALITY configured: SNI={reality_sni}, Fingerprint={reality_fingerprint}")
-        elif transport == "realitymux" and not direct_mode:
-            print(f"\n  {BOLD}🎭 REALITY Configuration:{RESET}")
-            print(f"  {FG_CYAN}Mode:{RESET} {FG_WHITE}Server will listen and accept REALITY connections{RESET}")
-            print(f"  {FG_WHITE}Note: Server accepts any SNI from clients (no configuration needed){RESET}")
-            print(f"  {FG_WHITE}Clients will configure their own SNI and fingerprint settings{RESET}")
-            c_ok(f"  ✅ REALITY server will accept connections with any SNI")
         
         print(f"\n  {BOLD}{FG_CYAN}Server Configuration:{RESET}")
         
@@ -3170,7 +3148,8 @@ def create_server_tunnel():
                 listen_addr = f"{bind_ip}:{tport}"
         
         print(f"\n  {BOLD}{FG_CYAN}Security Settings:{RESET}")
-        psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}")
+        print("  Enter uses the same default on both servers. Custom keys must match.")
+        psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}", default=DEFAULT_PSK)
         
         encryption_config = configure_encryption()
         encryption_enabled = encryption_config["enabled"]
@@ -3260,8 +3239,8 @@ def create_server_tunnel():
         
         cert_file = None
         key_file = None
-        if transport in ("tlsmux", "wssmux", "realitymux") and not direct_mode:
-            print(f"\n  {BOLD}🔐 TLS/REALITY Certificate (Reverse – server listens):{RESET}")
+        if transport in ("tlsmux", "wssmux") and not direct_mode:
+            print(f"\n  {BOLD}🔐 TLS Certificate (Reverse – server listens):{RESET}")
             print(f"  {FG_GREEN}1){RESET} Get new certificate (Let's Encrypt) {FG_WHITE}[Default – recommended]{RESET}")
             print(f"  {FG_BLUE}2){RESET} Use existing certificate (provide file paths)")
             print(f"  {FG_YELLOW}3){RESET} Self-signed (test only, auto-generated)")
@@ -3370,11 +3349,16 @@ def create_server_tunnel():
                             exit_script()
         
         tls_insecure_skip_verify = False
-        if direct_mode and transport in ("tlsmux", "wssmux", "realitymux"):
-            print(f"\n  {BOLD}🔐 Kharej Client Certificate (TLS/REALITY):{RESET}")
+        tls_trust = {}
+        if direct_mode and transport in ("tlsmux", "wssmux"):
+            print(f"\n  {BOLD}🔐 Kharej Client Certificate (TLS):{RESET}")
             print(f"  {FG_GREEN}1){RESET} Server (valid certificate – Kharej uses Let's Encrypt or real cert)")
-            print(f"  {FG_YELLOW}2){RESET} Test (self-signed – Kharej uses self-signed, Iran accepts it)")
-            cert_accept = ask_int(f"  {BOLD}Select:{RESET}", min_=1, max_=2, default=1)
+            print(f"  {FG_YELLOW}2){RESET} Test (certificate verification disabled)")
+            if transport in ("tlsmux", "wssmux"):
+                print("  3) Verify using a private CA/certificate PEM (secure)")
+            cert_accept = ask_int(f"  {BOLD}Select:{RESET}", min_=1, max_=3 if transport in ("tlsmux", "wssmux") else 2, default=1)
+            if cert_accept == 3:
+                tls_trust = configure_tls_private_trust()
             if cert_accept == 2:
                 tls_insecure_skip_verify = True
                 c_ok("  ✅ Server will accept outside side's self-signed certificate")
@@ -3497,7 +3481,8 @@ def create_server_tunnel():
             "proxy_protocol_enabled": proxy_protocol_enabled,
             "proxy_protocol_version": proxy_protocol_version,
             "proxy_protocol_ports": proxy_protocol_ports,
-            "tls_insecure_skip_verify": tls_insecure_skip_verify
+            "tls_insecure_skip_verify": tls_insecure_skip_verify,
+            **tls_trust
         }
         if direct_mode:
             cfg["retry_interval"] = retry_interval
@@ -3512,18 +3497,17 @@ def create_server_tunnel():
             cfg["cert_file"] = cert_file
             cfg["key_file"] = key_file
             print(f"  {FG_GREEN}✅ Certificate files added to config: cert={cert_file}, key={key_file}{RESET}")
-        elif transport in ("tlsmux", "wssmux", "realitymux") and not direct_mode:
+        elif transport in ("tlsmux", "wssmux") and not direct_mode:
             print(f"  {FG_YELLOW}⚠️  No certificate files (option 3 – self-signed will be used){RESET}")
-        elif transport in ("tlsmux", "wssmux", "realitymux") and direct_mode:
+        elif transport in ("tlsmux", "wssmux") and direct_mode:
             print(f"  {FG_CYAN}Direct mode: server dials to client{RESET}")
         
-        if transport == "realitymux" and reality_sni and reality_fingerprint:
-            cfg["reality_sni"] = reality_sni
-            cfg["reality_fingerprint"] = reality_fingerprint
         if is_rawsocket_transport(transport):
             apply_rawsocket_detected_to_cfg(cfg, transport)
             print_rawsocket_detect_summary(cfg)
         
+        if reality_settings is not None:
+            cfg["reality"] = reality_settings
         config_path = create_server_config_file(tport, cfg)
         
         print()
@@ -3576,54 +3560,24 @@ def create_client_tunnel():
             create_client_l3_tunnel()
             return
         direct_mode = ask_connection_mode_for_transport(transport, server_side=False)
+        reality_settings = ask_reality_settings(direct_mode) if transport == "realitymux" else None
         
-        reality_sni = ""
-        reality_fingerprint = ""
-        if transport == "realitymux" and not direct_mode:
-            print(f"\n  {BOLD}🎭 REALITY Configuration:{RESET}")
-                                                            
-            print(f"\n  {BOLD}SNI Target:{RESET}")
-            print(f"  {FG_CYAN}1){RESET} {FG_WHITE}cloudflare.com{RESET} (Recommended - most common)")
-            print(f"  {FG_CYAN}2){RESET} {FG_WHITE}google.com{RESET}")
-            print(f"  {FG_CYAN}3){RESET} {FG_WHITE}microsoft.com{RESET}")
-            print(f"  {FG_CYAN}4){RESET} {FG_WHITE}apple.com{RESET}")
-            print(f"  {FG_CYAN}5){RESET} {FG_YELLOW}random{RESET} (Changes per connection - maximum stealth)")
-            print(f"  {FG_CYAN}6){RESET} {FG_YELLOW}Custom{RESET}")
-            sni_choice = ask_int(f"  {BOLD}Select SNI target:{RESET}", min_=1, max_=6, default=5) 
-            sni_options = {1: "cloudflare.com", 2: "google.com", 3: "microsoft.com", 4: "apple.com", 5: "random"}
-            if sni_choice == 6:
-                reality_sni = ask_nonempty(f"  {BOLD}Enter custom SNI:{RESET}")
-            else:
-                reality_sni = sni_options[sni_choice]
-            
-            print(f"\n  {BOLD}TLS Fingerprint:{RESET}")
-            print(f"  {FG_WHITE}Select which browser's TLS fingerprint to mimic:{RESET}")
-            print(f"  {FG_CYAN}1){RESET} {FG_WHITE}Chrome{RESET} (Recommended - most common)")
-            print(f"  {FG_CYAN}2){RESET} {FG_WHITE}Firefox{RESET}")
-            print(f"  {FG_CYAN}3){RESET} {FG_WHITE}Safari{RESET}")
-            print(f"  {FG_CYAN}4){RESET} {FG_WHITE}Edge{RESET}")
-            print(f"  {FG_CYAN}5){RESET} {FG_WHITE}iOS{RESET}")
-            print(f"  {FG_CYAN}6){RESET} {FG_WHITE}Android{RESET}")
-            print(f"  {FG_CYAN}7){RESET} {FG_YELLOW}random{RESET} (Changes per connection - maximum stealth)")
-            fingerprint_choice = ask_int(f"  {BOLD}Select fingerprint:{RESET}", min_=1, max_=7, default=7) 
-            fingerprint_options = {1: "chrome", 2: "firefox", 3: "safari", 4: "edge", 5: "ios", 6: "android", 7: "random"}
-            reality_fingerprint = fingerprint_options[fingerprint_choice]
-            
-            c_ok(f"  ✅ REALITY configured: SNI={reality_sni}, Fingerprint={reality_fingerprint}")
-        elif transport == "realitymux" and direct_mode:
-            print(f"\n  {BOLD}🎭 REALITY Configuration:{RESET}")
-            c_ok(f"  ✅ REALITY client will accept connections with any SNI")
         
         tls_insecure_skip_verify = False
+        tls_trust = {}
         cert_file = None
         key_file = None
         
-        if transport in ("tlsmux", "wssmux", "realitymux"):
+        if transport in ("tlsmux", "wssmux"):
             if not direct_mode:
                 print(f"\n  {BOLD}🔐 Server Certificate Type (Reverse – Kharej connects):{RESET}")
                 print(f"  {FG_GREEN}1){RESET} Server (real certificate – Let's Encrypt or valid cert) {FG_WHITE}[Default]{RESET}")
-                print(f"  {FG_YELLOW}2){RESET} Test (self-signed certificate)")
-                cert_type = ask_int(f"  {BOLD}Select:{RESET}", min_=1, max_=2, default=1)
+                print(f"  {FG_YELLOW}2){RESET} Test (certificate verification disabled)")
+                if transport in ("tlsmux", "wssmux"):
+                    print("  3) Verify using a private CA/certificate PEM (secure)")
+                cert_type = ask_int(f"  {BOLD}Select:{RESET}", min_=1, max_=3 if transport in ("tlsmux", "wssmux") else 2, default=1)
+                if cert_type == 3:
+                    tls_trust = configure_tls_private_trust()
                 
                 if cert_type == 2:
                     tls_insecure_skip_verify = True
@@ -3632,7 +3586,7 @@ def create_client_tunnel():
                     tls_insecure_skip_verify = False
                     c_ok("  ✅ tls_insecure_skip_verify will be set to false (for real certificate)")
             else:
-                print(f"\n  {BOLD}🔐 TLS/REALITY Certificate (Direct – Kharej listens):{RESET}")
+                print(f"\n  {BOLD}🔐 TLS Certificate (Direct – Kharej listens):{RESET}")
                 print(f"  {FG_GREEN}1){RESET} Get new certificate (Let's Encrypt) {FG_WHITE}[Default – recommended]{RESET}")
                 print(f"  {FG_BLUE}2){RESET} Use existing certificate (provide file paths)")
                 print(f"  {FG_YELLOW}3){RESET} Self-signed (no cert config – فقط اگر روی سرور ایران «قبول self-signed» زدی)")
@@ -3752,7 +3706,7 @@ def create_client_tunnel():
             else:
                 listen_addr = f"{bind_ip}:{tport}"
             
-            if transport in ("tlsmux", "wssmux", "realitymux") and 'cert_choice_stored' in locals() and cert_choice_stored == 1:
+            if transport in ("tlsmux", "wssmux") and 'cert_choice_stored' in locals() and cert_choice_stored == 1:
                 cert_file, key_file = get_certificate_with_acme(cert_domain, cert_email, tport)
                 if not cert_file or not key_file:
                     c_err("  Failed to get real certificate!")
@@ -3775,7 +3729,7 @@ def create_client_tunnel():
             print(f"\n  {BOLD}{FG_CYAN}Connection Settings:{RESET}")
             pass
             pass
-            if transport in ("wssmux", "tlsmux", "realitymux"):
+            if transport in ("wssmux", "tlsmux"):
                 pass
             server_ip = ask_nonempty(f"  {BOLD}Iran Server IP:{RESET}")
             tport = ask_int(f"  {BOLD}Tunnel Port:{RESET}", min_=1, max_=65535)
@@ -3788,7 +3742,8 @@ def create_client_tunnel():
         
         print(f"\n  {BOLD}{FG_CYAN}Security Settings:{RESET}")
         pass
-        psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}")
+        print("  Enter uses the same default on both servers. Custom keys must match.")
+        psk = ask_nonempty(f"  {BOLD}Pre-shared Key (PSK):{RESET}", default=DEFAULT_PSK)
         
         encryption_config = configure_encryption()
         encryption_enabled = encryption_config["enabled"]
@@ -3844,10 +3799,9 @@ def create_client_tunnel():
                 if _ep:
                     path_dict["edge_ip"] = _ep
                     c_ok(f"  ✅ Edge IP set: {FG_CYAN}{_ep}{RESET}")
-            if transport == "realitymux" and reality_sni and reality_fingerprint:
-                path_dict["reality_sni"] = reality_sni
-                path_dict["reality_fingerprint"] = reality_fingerprint
             
+            if reality_settings is not None:
+                path_dict["reality"] = reality_settings
             paths.append(path_dict)
             
             print(f"\n  {FG_GREEN}✅ Primary server configured:{RESET} {FG_CYAN}{transport}://{server_addr}{RESET} {FG_WHITE}({connection_pool} connections){RESET}")
@@ -3868,40 +3822,12 @@ def create_client_tunnel():
                 print(f"  {FG_CYAN}3){RESET} {FG_WHITE}kcpmux{RESET} (KCP with smux)")
                 print(f"  {FG_CYAN}4){RESET} {FG_WHITE}wsmux{RESET} (WebSocket with smux)")
                 print(f"  {FG_CYAN}5){RESET} {FG_WHITE}wssmux{RESET} (WebSocket Secure with smux)")
-                print(f"  {FG_CYAN}6){RESET} {FG_WHITE}realitymux{RESET} (REALITY TLS camouflage - anti-DPI)")
+                print(f"  {FG_CYAN}6){RESET} {FG_WHITE}realitymux{RESET} (REALITY key authentication)")
                 print(f"  {FG_CYAN}7){RESET} {FG_WHITE}rawsocket{RESET} (KCP+FEC - high performance)")
                 new_transport_choice = ask_int(f"\n  {BOLD}Select transport:{RESET}", min_=1, max_=7, default=1)
                 transports_backup = {1: "tcpmux", 2: "tlsmux", 3: "kcpmux", 4: "wsmux", 5: "wssmux", 6: "realitymux", 7: "rawsocket"}
                 new_transport = transports_backup[new_transport_choice]
                 
-                new_reality_sni = None
-                new_reality_fingerprint = None
-                if new_transport == "realitymux":
-                    print(f"\n  {BOLD}{FG_CYAN}REALITY Configuration:{RESET} {FG_WHITE}(TLS Camouflage){RESET}")
-                    print(f"  {FG_WHITE}REALITY mimics real browser TLS fingerprints to bypass DPI.{RESET}")
-                    print(f"\n  {BOLD}SNI Target:{RESET}")
-                    print(f"  {FG_CYAN}1){RESET} {FG_WHITE}cloudflare.com{RESET} {FG_WHITE}(default - recommended){RESET}")
-                    print(f"  {FG_CYAN}2){RESET} {FG_WHITE}google.com{RESET}")
-                    print(f"  {FG_CYAN}3){RESET} {FG_WHITE}microsoft.com{RESET}")
-                    print(f"  {FG_CYAN}4){RESET} {FG_WHITE}apple.com{RESET}")
-                    print(f"  {FG_CYAN}5){RESET} {FG_WHITE}Custom{RESET}")
-                    sni_choice = ask_int(f"  {BOLD}Select SNI:{RESET}", min_=1, max_=5, default=1)
-                    sni_options = {1: "cloudflare.com", 2: "google.com", 3: "microsoft.com", 4: "apple.com"}
-                    if sni_choice == 5:
-                        new_reality_sni = ask_nonempty(f"  {BOLD}Custom SNI:{RESET}")
-                    else:
-                        new_reality_sni = sni_options[sni_choice]
-                    
-                    print(f"\n  {BOLD}TLS Fingerprint:{RESET}")
-                    print(f"  {FG_CYAN}1){RESET} {FG_WHITE}chrome{RESET} {FG_WHITE}(default - most common){RESET}")
-                    print(f"  {FG_CYAN}2){RESET} {FG_WHITE}firefox{RESET}")
-                    print(f"  {FG_CYAN}3){RESET} {FG_WHITE}safari{RESET}")
-                    print(f"  {FG_CYAN}4){RESET} {FG_WHITE}edge{RESET}")
-                    print(f"  {FG_CYAN}5){RESET} {FG_WHITE}ios{RESET}")
-                    print(f"  {FG_CYAN}6){RESET} {FG_WHITE}android{RESET}")
-                    fingerprint_choice = ask_int(f"  {BOLD}Select fingerprint:{RESET}", min_=1, max_=6, default=1)
-                    fingerprint_options = {1: "chrome", 2: "firefox", 3: "safari", 4: "edge", 5: "ios", 6: "android"}
-                    new_reality_fingerprint = fingerprint_options[fingerprint_choice]
                 
                 if new_transport == "wssmux":
                     pass
@@ -3959,10 +3885,9 @@ def create_client_tunnel():
                     if _ep:
                         new_path_dict["edge_ip"] = _ep
                         c_ok(f"  ✅ Edge IP set: {FG_CYAN}{_ep}{RESET}")
-                if new_transport == "realitymux" and new_reality_sni and new_reality_fingerprint:
-                    new_path_dict["reality_sni"] = new_reality_sni
-                    new_path_dict["reality_fingerprint"] = new_reality_fingerprint
                 
+                if new_transport == "realitymux":
+                    new_path_dict["reality"] = ask_reality_settings(False)
                 paths.append(new_path_dict)
                 
                 print(f"  {FG_GREEN}✅ Backup server added:{RESET} {FG_CYAN}{new_transport}://{new_server_addr}{RESET} {FG_WHITE}({new_connection_pool} connections){RESET}")
@@ -4043,9 +3968,8 @@ def create_client_tunnel():
             "direct": direct_mode,
             "listen": listen_addr,
             "transport": transport,
-            "reality_sni": reality_sni,
-            "reality_fingerprint": reality_fingerprint,
             "tls_insecure_skip_verify": tls_insecure_skip_verify,
+            **tls_trust,
             "verbose": verbose,
             "heartbeat": heartbeat,
             "compression_config": compression_config,
@@ -4070,12 +3994,14 @@ def create_client_tunnel():
             cfg["cert_file"] = cert_file
             cfg["key_file"] = key_file
             print(f"  {FG_GREEN}✅ Certificate files added to config: cert={cert_file}, key={key_file}{RESET}")
-        elif transport in ("tlsmux", "wssmux", "realitymux") and direct_mode:
+        elif transport in ("tlsmux", "wssmux") and direct_mode:
             print(f"  {FG_YELLOW}⚠️  Option 3 selected – self-signed will be used. Ensure Iran server has «accept self-signed» enabled.{RESET}")
         if is_rawsocket_transport(transport):
             apply_rawsocket_detected_to_cfg(cfg, transport)
             print_rawsocket_detect_summary(cfg)
         
+        if direct_mode and reality_settings is not None:
+            cfg["reality"] = reality_settings
         config_path = create_client_config_file(cfg)
         
         print()
@@ -4323,6 +4249,19 @@ def check_tunnel_health(config_path: Path):
 def tunnel_health_check(config_path: Path, tunnel: Dict[str,Any] | None = None):
     return check_tunnel_health(config_path)
 
+def _print_l3_directions(data):
+    directions = data.get("directions")
+    if not isinstance(directions, dict):
+        return 
+    print(f"    {BOLD}L3 Link:{RESET} {directions.get('message', 'Unknown')}")
+    rx_path = directions.get("receive_path") or "Peer → Local"
+    print(f"    {rx_path} (RX): {directions.get('receive', 'unconfirmed')}")
+    tx_path = directions.get("transmit_path") or "Local → Peer"
+    print(f"    {tx_path} (TX): {directions.get('transmit', 'unconfirmed')}")
+    if directions.get("state") != "established":
+        print("    Unconfirmed does not prove filtering; check peer, configuration and path.")
+
+
 def _print_simple_health(body: str):
     """Parse and print /health (simple) without dumping raw JSON."""
     try:
@@ -4348,8 +4287,10 @@ def _print_simple_health(body: str):
             wall = str(ns)
         return f"{wall}  ({age_s:.1f}s ago)"
 
+    _print_l3_directions(data)
     active = bool(data.get("active", False))
     ready = bool(data.get("ready", False))
+    control_label = "Peer Control (RX)" if isinstance(data.get("directions"), dict) else "Peer Transport"
     peer_transport_up = bool(data.get("peer_transport_up", False))
     peer_data_verified = bool(data.get("peer_data_verified", False))
 
@@ -4362,7 +4303,7 @@ def _print_simple_health(body: str):
     print(f"    {BOLD}Active:{RESET} {FG_GREEN if active else FG_YELLOW}{'YES' if active else 'NO'}{RESET}")
     print(f"    {BOLD}Ready:{RESET} {FG_GREEN if ready else FG_YELLOW}{'YES' if ready else 'NO'}{RESET}")
     if peer_transport_up or peer_data_verified:
-        print(f"    {BOLD}Peer Transport:{RESET} {FG_GREEN if peer_transport_up else FG_YELLOW}{'UP' if peer_transport_up else 'DOWN'}{RESET}")
+        print(f"    {BOLD}{control_label}:{RESET} {FG_GREEN if peer_transport_up else FG_YELLOW}{'UP' if peer_transport_up else 'DOWN'}{RESET}")
         print(f"    {BOLD}Peer Data Verified:{RESET} {FG_GREEN if peer_data_verified else FG_YELLOW}{'YES' if peer_data_verified else 'NO'}{RESET}")
     if local or remote:
         print(f"    {BOLD}Local:{RESET}  {FG_CYAN}{local}{RESET}")
@@ -4381,6 +4322,7 @@ def _print_detailed_health(body: str):
         print(f"    {FG_WHITE}Response: {body[:200]}{RESET}")
         return
     
+    _print_l3_directions(data)
     status = data.get("status", "unknown")
     stats = data.get("stats") or {}
     
@@ -4399,8 +4341,9 @@ def _print_detailed_health(body: str):
         ready = bool(data.get("ready"))
         print(f"    {BOLD}Ready:{RESET} {FG_GREEN if ready else FG_YELLOW}{'YES' if ready else 'NO'}{RESET}")
     if "peer_transport_up" in data:
+        control_label = "Peer Control (RX)" if isinstance(data.get("directions"), dict) else "Peer Transport"
         ptu = bool(data.get("peer_transport_up"))
-        print(f"    {BOLD}Peer Transport:{RESET} {FG_GREEN if ptu else FG_YELLOW}{'UP' if ptu else 'DOWN'}{RESET}")
+        print(f"    {BOLD}{control_label}:{RESET} {FG_GREEN if ptu else FG_YELLOW}{'UP' if ptu else 'DOWN'}{RESET}")
     if "peer_data_verified" in data:
         pdv = bool(data.get("peer_data_verified"))
         print(f"    {BOLD}Peer Data Verified:{RESET} {FG_GREEN if pdv else FG_YELLOW}{'YES' if pdv else 'NO'}{RESET}")
@@ -4652,295 +4595,159 @@ def core_management_menu():
             c_err("Invalid choice.")
             pause()
 
+NETRIX_SIGNING_PUBLIC_KEY = "d8e36e431ff8e1639ded9a74c7af4e120ac62aaa270a9f156d976cdb57ec9be2"
+NETRIX_MAX_BINARY = 50 * 1024 * 1024
+NETRIX_MAX_ARCHIVE = 64 * 1024 * 1024
+
+def _release_trust_key():
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", NETRIX_SIGNING_PUBLIC_KEY):
+        raise ValueError("Installer has no pinned publisher key; distribute the manager produced by build.sh")
+    return bytes.fromhex(NETRIX_SIGNING_PUBLIC_KEY)
+
+def _verify_release_binary(candidate, architecture, workdir):
+    key = _release_trust_key()
+    data = Path(candidate).read_bytes()
+    if not 1024 * 1024 <= len(data) <= NETRIX_MAX_BINARY:
+        raise ValueError("Invalid release binary size")
+    machine = {"amd64": 62, "arm64": 183}.get(architecture)
+    if (machine is None or data[:6] != b"\x7fELF\x02\x01"
+            or int.from_bytes(data[18:20], "little") != machine):
+        raise ValueError("Release binary architecture mismatch")
+    if data[-72:-64] != b"NXSIGV1!":
+        raise ValueError("Release signature is missing")
+    openssl = shutil.which("openssl")
+    if not openssl:
+        raise RuntimeError("OpenSSL with Ed25519 support is required for release verification")
+    workdir = Path(workdir)
+    pub = workdir / "publisher.der"
+    digest = workdir / "body.sha256"
+    signature = workdir / "signature.bin"
+    pub.write_bytes(bytes.fromhex("302a300506032b6570032100") + key)
+    digest.write_bytes(hashlib.sha256(data[:-72]).digest())
+    signature.write_bytes(data[-64:])
+    result = subprocess.run([openssl, "pkeyutl", "-verify", "-pubin", "-keyform", "DER",
+                             "-inkey", str(pub), "-rawin", "-in", str(digest),
+                             "-sigfile", str(signature)], capture_output=True, timeout=15)
+    if result.returncode != 0:
+        raise ValueError("Publisher signature verification failed")
+
+def _read_release_archive(archive, candidate):
+    import tarfile
+    import gzip
+    from pathlib import PurePosixPath
+    class BoundedReader:
+        def __init__(self, source):
+            self.source, self.total = source, 0
+        def read(self, size=-1):
+            remaining = NETRIX_MAX_ARCHIVE - self.total
+            block = self.source.read(min(size if size >= 0 else remaining + 1, remaining + 1))
+            self.total += len(block)
+            if self.total > NETRIX_MAX_ARCHIVE:
+                raise ValueError("Decompressed archive exceeds release limits")
+            return block
+    seen, found, total = set(), False, 0
+    with gzip.open(archive, "rb") as compressed, tarfile.open(fileobj=BoundedReader(compressed), mode="r|") as tar:
+        for count, member in enumerate(tar, 1):
+            name = PurePosixPath(member.name)
+            if (count > 256 or name.is_absolute() or ".." in name.parts
+                    or "\\" in member.name or not name.parts or str(name) in seen):
+                raise ValueError("Unsafe or duplicate archive path")
+            seen.add(str(name))
+            if not (member.isfile() or member.isdir()) or member.size < 0:
+                raise ValueError("Archive links and special files are forbidden")
+            total += member.size
+            if member.size > NETRIX_MAX_BINARY or total > NETRIX_MAX_ARCHIVE:
+                raise ValueError("Archive exceeds release limits")
+            if member.isdir() and member.size != 0:
+                raise ValueError("Invalid directory entry")
+            if name.name == "netrix" and member.isfile():
+                if found:
+                    raise ValueError("Multiple netrix binaries in archive")
+                found = True
+                source = tar.extractfile(member)
+                with source, open(candidate, "xb") as target:
+                    shutil.copyfileobj(source, target, length=1024 * 1024)
+                if Path(candidate).stat().st_size != member.size:
+                    raise ValueError("Truncated release binary")
+    if not found:
+        raise ValueError("netrix binary missing from release archive")
+
+def _download_release(url, target):
+    if not url.startswith("https://"):
+        raise ValueError("Release download requires HTTPS")
+    request = urllib.request.Request(url, headers={"User-Agent": "Netrix-Installer/2.0"})
+    start, total = time.monotonic(), 0
+    with urllib.request.urlopen(request, timeout=30) as response, open(target, "xb") as output:
+        if not response.geturl().startswith("https://"):
+            raise ValueError("Insecure release redirect")
+        while True:
+            block = response.read(1024 * 1024)
+            if not block:
+                break
+            total += len(block)
+            if total > NETRIX_MAX_ARCHIVE or time.monotonic() - start > 180:
+                raise ValueError("Release download exceeds limits")
+            output.write(block)
+
+def _install_verified_release():
+    import fcntl
+    _release_trust_key()  
+    arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower())
+    if arch not in NETRIX_RELEASE_URLS:
+        raise ValueError("Unsupported architecture")
+    destination = Path(NETRIX_BINARY)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    lockfd = os.open(str(destination) + ".install.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(lockfd, "wb") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if destination.is_symlink():
+            raise ValueError("Binary destination must not be a symlink")
+        with tempfile.TemporaryDirectory(prefix=".netrix-install-", dir=destination.parent) as private:
+            private = Path(private)
+            archive, candidate = private / "release.tar.gz", private / "netrix"
+            _download_release(NETRIX_RELEASE_URLS[arch], archive)
+            _read_release_archive(archive, candidate)
+            _verify_release_binary(candidate, arch, private)
+            os.chmod(candidate, 0o755)
+            result = subprocess.run([str(candidate), "-version"], capture_output=True, text=True, timeout=15)
+            if result.returncode != 0 or not {"security=4", "trust=3", "l3-auth=1", "license-role=2"}.issubset(result.stdout.split()):
+                raise ValueError("Release startup check failed or obsolete security version")
+            if destination.exists():
+                backup = private / "previous"
+                shutil.copyfile(destination, backup)
+                os.chmod(backup, 0o755)
+                with open(backup, "rb") as saved:
+                    os.fsync(saved.fileno())
+                os.replace(backup, str(destination) + ".backup")
+            with open(candidate, "rb") as saved:
+                os.fsync(saved.fileno())
+            os.replace(candidate, destination)
+            directory_fd = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+            return result.stdout.strip()
+
 def install_netrix_core():
-    """نصب هسته Netrix"""
     try:
         _wizard_intro("INSTALL NETRIX CORE", "")
-        
-        if Path(NETRIX_BINARY).exists():
-            c_warn("  Netrix Core is already installed!")
-            if not ask_yesno(f"  {BOLD}Do you want to reinstall?{RESET}", default=False):
-                return
-        
-        print(f"  {FG_CYAN}Detecting system architecture...{RESET}")
-        arch = platform.machine().lower()
-        
-        arch_map = {
-            "x86_64": "amd64",
-            "amd64": "amd64",
-            "aarch64": "arm64",
-            "arm64": "arm64",
-            "armv7l": "arm",
-            "armv6l": "arm"
-        }
-        
-        go_arch = arch_map.get(arch, "amd64")
-        print(f"  {BOLD}Architecture:{RESET} {FG_GREEN}{arch} {FG_WHITE}({go_arch}){RESET}")
-        
-        download_url = NETRIX_RELEASE_URLS.get(go_arch)
-        if not download_url:
-            c_err(f"  ❌ Unsupported architecture: {go_arch}")
-            c_warn(f"  Supported: amd64 (x86_64), arm64 (aarch64)")
-            pause()
+        if Path(NETRIX_BINARY).exists() and not ask_yesno("Reinstall Netrix Core?", default=False):
             return
-        
-        print(f"\n  {BOLD}{FG_CYAN}Download URL:{RESET} {FG_GREEN}{download_url}{RESET}")
-        
-        print(f"\n  {FG_CYAN}Downloading Netrix Core from:{RESET} {FG_GREEN}{download_url}{RESET}")
-        temp_file = Path("/tmp/netrix.tar.gz")
-        temp_dir = Path("/tmp/netrix_extract")
-        
-        try:
-            print(f"  {FG_CYAN}⏳ Downloading...{RESET}")
-            req = urllib.request.Request(download_url)
-            req.add_header("User-Agent", "Netrix-Installer/1.0")
-            with urllib.request.urlopen(req, timeout=60) as response:
-                with open(temp_file, 'wb') as f:
-                    shutil.copyfileobj(response, f)
-            
-            file_size = temp_file.stat().st_size
-            if file_size < 1024:
-                raise Exception("Downloaded file is too small, may be corrupted")
-            
-            c_ok(f"  ✅ Download completed {FG_WHITE}({file_size / 1024 / 1024:.2f} MB){RESET}")
-        except urllib.error.URLError as e:
-            c_err(f"  ❌ Failed to download: {FG_RED}Network error - {str(e)}{RESET}")
-            if temp_file.exists():
-                temp_file.unlink()
-            pause()
-            return
-        except Exception as e:
-            c_err(f"  ❌ Failed to download: {FG_RED}{str(e)}{RESET}")
-            if temp_file.exists():
-                temp_file.unlink()
-            pause()
-            return
-        
-        print(f"\n  {FG_CYAN}Extracting archive...{RESET}")
-        try:
-            import tarfile
-            
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            
-            with tarfile.open(temp_file, 'r:gz') as tar:
-                tar.extractall(temp_dir)
-            
-            c_ok(f"  ✅ Archive extracted")
-            
-            netrix_file = None
-            for file in temp_dir.rglob("netrix"):
-                if file.is_file():
-                    netrix_file = file
-                    break
-            
-            if not netrix_file:
-                raise Exception("netrix binary not found in archive")
-            
-        except Exception as e:
-            c_err(f"  ❌ Failed to extract: {FG_RED}{str(e)}{RESET}")
-            if temp_file.exists():
-                temp_file.unlink()
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
-            pause()
-            return
-
-        print(f"\n  {FG_CYAN}Installing Netrix Core to {NETRIX_BINARY}...{RESET}")
-        try:
-            binary_dir = Path(NETRIX_BINARY).parent
-            binary_dir.mkdir(parents=True, exist_ok=True)
-            
-            if Path(NETRIX_BINARY).exists():
-                backup_file = Path(f"{NETRIX_BINARY}.backup")
-                shutil.copy(NETRIX_BINARY, backup_file)
-                print(f"  {FG_YELLOW}Old version backed up to: {backup_file}{RESET}")
-            
-            shutil.copy(netrix_file, NETRIX_BINARY)
-            
-            os.chmod(NETRIX_BINARY, 0o755)
-            
-            temp_file.unlink()
-            shutil.rmtree(temp_dir)
-            
-            c_ok(f"  ✅ Netrix Core installed successfully!")
-            c_ok(f"  ✅ Binary location: {FG_GREEN}{NETRIX_BINARY}{RESET}")
-            try:
-                try:
-                    with urllib.request.urlopen("https://api.ipify.org", timeout=3) as response:
-                        public_ip = response.read().decode().strip()
-                        c_ok(f"  ✅ Server Public IP: {FG_GREEN}{public_ip}{RESET}")
-                except:
-                    hostname = socket.gethostname()
-                    local_ip = socket.gethostbyname(hostname)
-                    c_ok(f"  ✅ Server Local IP: {FG_GREEN}{local_ip}{RESET}")
-            except Exception:
-                pass  
-            
-        except Exception as e:
-            c_err(f"  ❌ Failed to install: {FG_RED}{str(e)}{RESET}")
-            if temp_file.exists():
-                temp_file.unlink()
-            pause()
-            return
-        
-        print(f"\n  {FG_CYAN}Verifying installation...{RESET}")
-        try:
-            result = subprocess.run([NETRIX_BINARY, "-version"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                print(f"  {BOLD}Version Info:{RESET}")
-                print(f"  {FG_GREEN}{result.stdout}{RESET}")
-                c_ok("  ✅ Installation verified successfully!")
-            else:
-                c_warn("  ⚠️  Could not verify version, but installation completed.")
-        except Exception as e:
-            c_warn(f"  ⚠️  Could not verify installation: {str(e)}")
-        
+        install_netrix_core_auto()
         pause()
     except UserCancelled:
         exit_script()
 
 def install_netrix_core_auto():
-    """نصب/Reinstall خودکار هسته Netrix بدون سوال (برای update)"""
     try:
-        print(f"  {FG_CYAN}Detecting system architecture...{RESET}")
-        arch = platform.machine().lower()
-        
-        arch_map = {
-            "x86_64": "amd64",
-            "amd64": "amd64",
-            "aarch64": "arm64",
-            "arm64": "arm64",
-            "armv7l": "arm",
-            "armv6l": "arm"
-        }
-        
-        go_arch = arch_map.get(arch, "amd64")
-        print(f"  {BOLD}Architecture:{RESET} {FG_GREEN}{arch} {FG_WHITE}({go_arch}){RESET}")
-        
-        download_url = NETRIX_RELEASE_URLS.get(go_arch)
-        if not download_url:
-            c_err(f"  ❌ Unsupported architecture: {go_arch}")
-            c_warn(f"  Supported: amd64 (x86_64), arm64 (aarch64)")
-            return False
-        
-        print(f"\n  {BOLD}{FG_CYAN}Download URL:{RESET} {FG_GREEN}{download_url}{RESET}")
-        
-        print(f"\n  {FG_CYAN}Downloading Netrix Core...{RESET}")
-        temp_file = Path("/tmp/netrix.tar.gz")
-        temp_dir = Path("/tmp/netrix_extract")
-        
-        try:
-            print(f"  {FG_CYAN}⏳ Downloading...{RESET}")
-            req = urllib.request.Request(download_url)
-            req.add_header("User-Agent", "Netrix-Installer/1.0")
-            with urllib.request.urlopen(req, timeout=60) as response:
-                with open(temp_file, 'wb') as f:
-                    shutil.copyfileobj(response, f)
-            
-            file_size = temp_file.stat().st_size
-            if file_size < 1024:
-                raise Exception("Downloaded file is too small, may be corrupted")
-            
-            c_ok(f"  ✅ Download completed {FG_WHITE}({file_size / 1024 / 1024:.2f} MB){RESET}")
-        except urllib.error.URLError as e:
-            c_err(f"  ❌ Failed to download: {FG_RED}Network error - {str(e)}{RESET}")
-            if temp_file.exists():
-                temp_file.unlink()
-            return False
-        except Exception as e:
-            c_err(f"  ❌ Failed to download: {FG_RED}{str(e)}{RESET}")
-            if temp_file.exists():
-                temp_file.unlink()
-            return False
-        
-        print(f"\n  {FG_CYAN}Extracting archive...{RESET}")
-        try:
-            import tarfile
-            
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            
-            with tarfile.open(temp_file, 'r:gz') as tar:
-                tar.extractall(temp_dir)
-            
-            c_ok(f"  ✅ Archive extracted")
-            
-            netrix_file = None
-            for file in temp_dir.rglob("netrix"):
-                if file.is_file():
-                    netrix_file = file
-                    break
-            
-            if not netrix_file:
-                raise Exception("netrix binary not found in archive")
-            
-        except Exception as e:
-            c_err(f"  ❌ Failed to extract: {FG_RED}{str(e)}{RESET}")
-            if temp_file.exists():
-                temp_file.unlink()
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
-            return False
-
-        print(f"\n  {FG_CYAN}Installing Netrix Core to {NETRIX_BINARY}...{RESET}")
-        try:
-            binary_dir = Path(NETRIX_BINARY).parent
-            binary_dir.mkdir(parents=True, exist_ok=True)
-            
-            if Path(NETRIX_BINARY).exists():
-                backup_file = Path(f"{NETRIX_BINARY}.backup")
-                shutil.copy(NETRIX_BINARY, backup_file)
-                print(f"  {FG_YELLOW}Old version backed up to: {backup_file}{RESET}")
-            
-            shutil.copy(netrix_file, NETRIX_BINARY)
-            
-            os.chmod(NETRIX_BINARY, 0o755)
-            
-            temp_file.unlink()
-            shutil.rmtree(temp_dir)
-            
-            c_ok(f"  ✅ Netrix Core installed successfully!")
-            c_ok(f"  ✅ Binary location: {FG_GREEN}{NETRIX_BINARY}{RESET}")
-            
-            try:
-                try:
-                    with urllib.request.urlopen("https://api.ipify.org", timeout=3) as response:
-                        public_ip = response.read().decode().strip()
-                        c_ok(f"  ✅ Server Public IP: {FG_GREEN}{public_ip}{RESET}")
-                except:
-                    hostname = socket.gethostname()
-                    local_ip = socket.gethostbyname(hostname)
-                    c_ok(f"  ✅ Server Local IP: {FG_GREEN}{local_ip}{RESET}")
-            except Exception:
-                pass
-            
-        except Exception as e:
-            c_err(f"  ❌ Failed to install: {FG_RED}{str(e)}{RESET}")
-            if temp_file.exists():
-                temp_file.unlink()
-            return False
-        
-        print(f"\n  {FG_CYAN}Verifying installation...{RESET}")
-        try:
-            result = subprocess.run([NETRIX_BINARY, "-version"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                print(f"  {BOLD}Version Info:{RESET}")
-                print(f"  {FG_GREEN}{result.stdout}{RESET}")
-                c_ok("  ✅ Installation verified successfully!")
-                return True
-            else:
-                c_warn("  ⚠️  Could not verify version, but installation completed.")
-                return True
-        except Exception as e:
-            c_warn(f"  ⚠️  Could not verify installation: {str(e)}")
-            return True
-        
-    except Exception as e:
-        c_err(f"  ❌ Installation failed: {FG_RED}{str(e)}{RESET}")
+        version = _install_verified_release()
+        c_ok("Publisher signature and startup verified: " + version)
+        return True
+    except Exception as exc:
+        c_err("Installation failed: " + str(exc))
         return False
+
 
 def update_netrix_core():
     """آپدیت هسته Netrix"""
@@ -4990,7 +4797,9 @@ def update_netrix_core():
             print(f"  {FG_WHITE}No active tunnels to stop.{RESET}")
         
         print(f"\n  {FG_CYAN}Installing updated core...{RESET}")
-        install_netrix_core_auto()
+        installed = install_netrix_core_auto()
+        if not installed:
+            c_warn("Update failed; restoring previously active services with the retained binary.")
         
         if stopped_count > 0:
             print(f"\n  {FG_CYAN}Restarting previously active tunnels...{RESET}")
